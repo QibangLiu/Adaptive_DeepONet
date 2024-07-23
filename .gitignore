@@ -1,0 +1,5 @@
+__pycache__/
+.ipynb_checkpoints/
+slurm_output/
+TrainingData/
+saved_model*
