@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J Jupyter
 #SBATCH --output=./slurm_output/jupyterServer_A100_%j.log
-#SBATCH --account=bbpq-delta-gpu
+#SBATCH --account=bblv-delta-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=gpuA100x4-interactive      # <- or one of: gpuA100x4 gpuA40x4 gpuA100x8 gpuMI100x8
@@ -12,8 +12,8 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --gpus-per-task=1
 ###module load anaconda3_gpu/23.3.1
-MYPORT=$(($(($RANDOM % 10000))+49152)); echo $MYPORT
-srun jupyter lab --no-browser --port=8891 --ip=0.0.0.0
+#MYPORT=$(($(($RANDOM % 10000))+49152)); echo $MYPORT --port=8891
+srun jupyter lab --no-browser  --ip=0.0.0.0
 ###srun jupyter-notebook --no-browser --port=8991 --ip=0.0.0.0 ## rm srun
 
 # # # ##SBATCH --gpu-bind=verbose,per_task:1

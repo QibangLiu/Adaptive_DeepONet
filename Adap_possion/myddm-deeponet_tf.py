@@ -3,7 +3,7 @@
 
 # In[1]:
 
-import DeepONet as don
+import Adaptive_DeepONet.Adap_possion.DeepONet_torch as don
 import sys
 import os
 import json

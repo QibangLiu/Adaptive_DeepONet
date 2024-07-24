@@ -6,7 +6,7 @@
 
 import sys
 import os
-import DeepONet as don
+import Adaptive_DeepONet.Adap_possion.DeepONet_torch as don
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler

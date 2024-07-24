@@ -16,7 +16,7 @@ import deepxde as dde
 import torch
 #from deepxde.backend import tf
 #from myutils import find_checkpoint_2restore, EvaluateDerivatives, LaplaceOperator2D
-import DeepONet
+import Adaptive_DeepONet.Adap_possion.DeepONet_torch as DeepONet_torch
 # dde.backend.set_default_backend("tensorflow")
 # dde.config.set_default_float("float64")
 # In[]
@@ -234,7 +234,7 @@ def LaplaceOperator2D(x, y,aux=None):
     return  (dydx2 + dydy2) 
 
 
-laplace_op = DeepONet.EvaluateDeepONetPDEs(model.net, LaplaceOperator2D)
+laplace_op = DeepONet_torch.EvaluateDeepONetPDEs(model.net, LaplaceOperator2D)
 # %%
 x_plot=x_test
 u0_plot_raw=u0_testing

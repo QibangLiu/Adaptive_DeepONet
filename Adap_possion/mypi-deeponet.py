@@ -1,7 +1,7 @@
 
 
 # %%
-import DeepONet 
+import Adaptive_DeepONet.Adap_possion.DeepONet_torch as DeepONet_torch 
 import sys
 import os
 import json
@@ -85,8 +85,8 @@ y_test = s_testing
 
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dataset_train = DeepONet.TripleCartesianProd(x_train, y_train,u0_train_raw)
-dataset_test = DeepONet.TripleCartesianProd(x_test, y_test,u0_testing_raw)
+dataset_train = DeepONet_torch.TripleCartesianProd(x_train, y_train,u0_train_raw)
+dataset_test = DeepONet_torch.TripleCartesianProd(x_test, y_test,u0_testing_raw)
 # %%
 # dataLolder_train = DataLoader(dataset_train, batch_size=64)
 
@@ -113,7 +113,7 @@ test_loader = DataLoader(
 # %%
 mse = torch.nn.MSELoss()
 
-class PDELoss(DeepONet.Losses):
+class PDELoss(DeepONet_torch.Losses):
     '''indices: list of indices of the output that we want to apply the loss to
         generally is the points inside the doamin
     '''
@@ -129,7 +129,7 @@ class PDELoss(DeepONet.Losses):
         losses= self.pde_evaluator(input_,model,aux)
         return torch.mean(torch.square(losses))
         
-class BCLoss(DeepONet.Losses):
+class BCLoss(DeepONet_torch.Losses):
     def __init__(self,indices,bc_v, size_average=None, reduce=None, reduction: str = "mean"):
         super().__init__(size_average, reduce, reduction)
         self.indices = indices     
@@ -158,11 +158,11 @@ def equation(x, y,aux=None):
 
     return  -0.01*scaler_solution*(dydx2 + dydy2)-aux.view(-1,1)
 
-equa_evaluator=DeepONet.EvaluateDeepONetPDEs(equation)
+equa_evaluator=DeepONet_torch.EvaluateDeepONetPDEs(equation)
 
 pde_loss=PDELoss(interior_indices,equa_evaluator)
 # %%
-model = DeepONet.DeepONetCartesianProd(
+model = DeepONet_torch.DeepONetCartesianProd(
     [m, 100, 100, 100, 100,100,100],
     [2, 100, 100, 100, 100,100,100],
 )
@@ -171,7 +171,7 @@ model.compile(optimizer=torch.optim.Adam, lr=0.002, loss=[bc_loss,pde_loss],loss
 model.to(device)
 # keras.backend.set_value(model.optimizer.lr, 5e-4)
 checkpoint_fname = os.path.join(filebase, "model.ckpt")
-checkpoint_callback = DeepONet.ModelCheckpoint(
+checkpoint_callback = DeepONet_torch.ModelCheckpoint(
     checkpoint_fname, monitor="loss", save_best_only=True
 )
 
@@ -214,7 +214,7 @@ def LaplaceOperator2D(x, y,aux=None):
 #     dydy2 = dde.grad.hessian(y, x, i=1, j=1)
 #     return -0.01 *(dydx2 + dydy2)*scaler_solution
 # %%
-laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D)
+laplace_op = DeepONet_torch.EvaluateDeepONetPDEs(LaplaceOperator2D)
 
 # %%
 x_plot=x_test

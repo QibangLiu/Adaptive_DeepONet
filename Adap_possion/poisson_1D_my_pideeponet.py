@@ -2,7 +2,7 @@
 import deepxde as dde
 import matplotlib.pyplot as plt
 import numpy as np
-import DeepONet 
+import Adaptive_DeepONet.Adap_possion.DeepONet_torch as DeepONet_torch 
 import tensorflow as tf
 # %%
 degree = 3
@@ -61,7 +61,7 @@ class BCICLosses():
         return loss
     
 
-class PIDeepONetCartesianProd(DeepONet.DeepONetCartesianProd):
+class PIDeepONetCartesianProd(DeepONet_torch.DeepONetCartesianProd):
     def __init__(self, layer_sizes_branch, layer_sizes_trunk, activation="tanh",losses_fun=[]):
         super().__init__(layer_sizes_branch, layer_sizes_trunk, activation="tanh")
         self.losses_fun = losses_fun
@@ -99,7 +99,7 @@ class PIDeepONetCartesianProd(DeepONet.DeepONetCartesianProd):
 # %%
 dim_x = 1
 p = 32
-model = DeepONet.DeepONetCartesianProd(
+model = DeepONet_torch.DeepONetCartesianProd(
     [num_eval_points, 32, p],
     [1, 32, p],
     activation="tanh"
@@ -113,7 +113,7 @@ model.compile(optimizer=optm, loss=[pde_loss,bc_loss])
 x_train = (fx, xy_coor)
 y_train = fx
 
-data = DeepONet.TripleCartesianProd(x_train, y_train, x_train, y_train, batch_size=64)
+data = DeepONet_torch.TripleCartesianProd(x_train, y_train, x_train, y_train, batch_size=64)
 
 # %%
 h = model.fit(

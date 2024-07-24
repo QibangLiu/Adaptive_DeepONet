@@ -1,29 +1,15 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
 
 # %%
-# import DeepONet as don
-import sys
 import os
-import json
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import scipy.io as scio
 import torch
 from torch.utils.data import Dataset, DataLoader
-import Adaptive_DeepONet.Adap_possion.DeepONet_torch as DeepONet_torch
-
+import DeepONet
 # In[]
 filebase = (
-    "/scratch/bblv/qibang/repository/Adap_data_driven_possion/saved_model/pytorch_test"
+    "./saved_model/pytorch_test"
 )
 os.makedirs(filebase, exist_ok=True)
 
@@ -32,16 +18,8 @@ os.makedirs(filebase, exist_ok=True)
 Nx = 128
 Ny = 128
 m = Nx * Ny
-###  N number of samples 1000
-###  m number of points 40
-###  P number of output sensors (coordinates) 1600
-### x_train is a tuple of u0(N,m) and output sensores, all coordinates xy_train_testing(P,2)
-### y_train is target solutions (our s) u(N,P)
-
-
-# tf.keras.utils.set_random_seed(seed)
 fenics_data = scio.loadmat(
-    "/scratch/bblv/qibang/repository/Adap_data_driven_possion/TrainingData/poisson_gauss_cov.mat"
+    "../Adap_possion/TrainingData/poisson_gauss_cov.mat"
 )
 
 x_grid = fenics_data["x_grid"].astype(np.float32)  # shape (Ny, Nx)
@@ -75,20 +53,16 @@ print("u0_testing.shape = ", u0_testing.shape)
 print("s_train.shape = ", s_train.shape)
 print("s_testing.shape = ", s_testing.shape)
 print("xy_train_testing.shape", xy_train_testing.shape)
-# %%
+
 x_train = (u0_train, xy_train_testing)
 y_train = s_train
 x_test = (u0_testing, xy_train_testing)
 y_test = s_testing
 
-
 # %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dataset_train = DeepONet_torch.TripleCartesianProd(x_train, y_train)
-dataset_test = DeepONet_torch.TripleCartesianProd(x_test, y_test)
-# %%
-# dataLolder_train = DataLoader(dataset_train, batch_size=64)
-
+dataset_train = DeepONet.TripleCartesianProd(x_train, y_train)
+dataset_test = DeepONet.TripleCartesianProd(x_test, y_test)
 
 train_loader = DataLoader(
     dataset_train,
@@ -104,28 +78,22 @@ test_loader = DataLoader(
     #generator=torch.Generator(device=device),
     collate_fn=dataset_train.custom_collate_fn,
 )
-# %%
 
-# dataloader = DataLoader(
-#     dataset_train, batch_size=2000, collate_fn=custom_collate_fn)
 
 # %%
 mse = torch.nn.MSELoss()
-model = DeepONet_torch.DeepONetCartesianProd(
+model = DeepONet.DeepONetCartesianProd(
     [m, 100, 100, 100, 100, 100, 100],
     [2, 100, 100, 100, 100, 100, 100],
 )
-model.compile(optimizer=torch.optim.Adam, lr=5e-4, loss=[mse])
+model.compile(optimizer=torch.optim.Adam, lr=5e-4, loss=mse)
 
 model.to(device)
-# keras.backend.set_value(model.optimizer.lr, 5e-4)
 checkpoint_fname = os.path.join(filebase, "model.ckpt")
-checkpoint_callback = DeepONet_torch.ModelCheckpoint(
+checkpoint_callback = DeepONet.ModelCheckpoint(
     checkpoint_fname, monitor="loss", save_best_only=True
 )
-
-
-
+# %%
 h = model.fit(
     train_loader, test_loader, device, epochs=2000, callbacks=checkpoint_callback
 )
@@ -143,12 +111,6 @@ y_pred_p = model.predict(x_test, device)
 y_pred = scaler_solution * y_pred_p
 y_test = s_testing_raw
 print("y_pred.shape =", y_pred.shape)
-
-
-# %%
-
-
-# %%
 
 error_s = []
 for i in range(len(y_test)):
@@ -240,7 +202,7 @@ def LaplaceOperator2D(x, y,aux=None):
 #     dydy2 = dde.grad.hessian(y, x, i=1, j=1)
 #     return -0.01 *(dydx2 + dydy2)*scaler_solution
 # %%
-laplace_op = DeepONet_torch.EvaluateDeepONetPDEs(model, LaplaceOperator2D)
+laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D)
 
 # %%
 x_plot=x_test
@@ -252,7 +214,7 @@ input_trunk = torch.tensor(input_trunk,requires_grad=True).to(device)
 output = model((input_branch, input_trunk))
 
 
-laplace_op_val = laplace_op((input_branch[[min_median_max_index]], input_trunk))
+laplace_op_val = laplace_op((input_branch[[min_median_max_index]], input_trunk),model=model)
 laplace_op_val=laplace_op_val.detach().cpu().numpy()
 # %%
 nr, nc = 3, 2
@@ -279,3 +241,5 @@ for i, index in enumerate(min_median_max_index):
     cbar = fig.colorbar(c2, ax=ax)
     plt.tight_layout()
 
+
+# %%
