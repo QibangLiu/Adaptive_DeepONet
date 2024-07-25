@@ -64,7 +64,6 @@ class ModelCheckpoint:
         torch.save(model.state_dict(), self.filepath)
 
 
-
 class NameGenerator:
     def __init__(self):
         self.name_count = {}
@@ -99,19 +98,14 @@ class DeepONetCartesianProd(nn.Module):
             self.activation_trunk = activation["trunk"]
         else:
             self.activation_branch = self.activation_trunk = activation
-            nn.Tanh()
-        self.activation_branch = nn.ReLU()
+        self.activation_branch = nn.Tanh()
         self.activation_trunk = nn.Tanh()
         self.trunk = self.build_net(layer_sizes_trunk, self.activation_trunk)
         self.branch = self.build_net(layer_sizes_branch, self.activation_branch)
         self.b = nn.Parameter(torch.tensor(0.0))
         self.name_generator = NameGenerator()
         self.logs = {}
-        # if self.trunk.output_shape != self.branch.output_shape:
-        #     raise AssertionError(
-        #         "Output sizes of branch net and trunk net do not match."
-        #     )
-        # self.logs = {"Epoch": []}
+        self.epoch_start=0
 
     def build_net(self, layer_sizes, activation):
         # User-defined network
@@ -143,7 +137,6 @@ class DeepONetCartesianProd(nn.Module):
         y += self.b
         return y
 
-    
     def compile(
         self,
         optimizer,
@@ -164,6 +157,18 @@ class DeepONetCartesianProd(nn.Module):
         self.loss_weights = loss_weights
         self.external_trainable_variables = external_trainable_variables
 
+        # def compile(self, optimizer, lr=0.001):
+        #     self.optimizer = torch.optim.LBFGS(
+        #         self.parameters(),
+        #         lr=lr,
+        #         max_iter=1000,
+        #         # max_eval=LBFGS_options["fun_per_step"],
+        #         # tolerance_grad=LBFGS_options["gtol"],
+        #         # tolerance_change=LBFGS_options["ftol"],
+        #         # history_size=LBFGS_options["maxcor"],
+        #         # line_search_fn=("strong_wolfe" if LBFGS_options["maxls"] > 0 else None),
+        #     )
+
     def collect_logs(self, losses_vals={}, batch_size=1):
         for key in losses_vals:
             if key not in self.logs:
@@ -177,32 +182,43 @@ class DeepONetCartesianProd(nn.Module):
                 print(f"{key}: {val[-1]:.4e}", end=", ")
         print()
 
-    def train_step(self, data, device="cpu"):
+    def evaluate_losses(self, data, device="cpu"):
         inputs_, y_true = data
         y_true = y_true.to(device)
         input_branch, input_trunk = (inputs_[0].to(device), inputs_[1].to(device))
-        self.optimizer.zero_grad()
         y_pred = self((input_branch, input_trunk))
         # TODO: Add multiple loss function
         loss = self.loss_fn(y_pred, y_true)
+        loss_dic = {"loss": loss.item()}
+        return loss, loss_dic
+
+    def train_step(self, data, device="cpu"):
+
+        self.optimizer.zero_grad()
+        loss_dic = {}
+        # def closure():
+        #     loss,loss_dic_ = self.evaluate_losses(data,device)
+        #     for key,value in loss_dic_.items():
+        #         loss_dic[key]=value
+        #     return loss
+        loss, loss_dic = self.evaluate_losses(data, device)
         loss.backward()
         self.optimizer.step()
-        return {"loss": loss.item()}
+        return loss_dic
 
     def validate_step(self, data, device="cpu"):
-        inputs_, y_true = data
-        y_true = y_true.to(device)
-        input_branch, input_trunk = (inputs_[0].to(device), inputs_[1].to(device))
-        y_pred = self((input_branch, input_trunk))
-        loss = self.loss_fn(y_pred, y_true)
-        return {"val_loss": loss.item()}
+        _, loss_dic = self.evaluate_losses(data, device)
+        val_loss = {}
+        for key, value in loss_dic.items():
+            val_loss["val_" + key] = value
+        return val_loss
 
     def fit(
         self, train_loader, val_loader=None, device="cpu", epochs=10, callbacks=None
     ):
         self.to(device)
         loss_vals = {}
-        for epoch in range(epochs):
+        for epoch in range(self.epoch_start,self.epoch_start+epochs):
             # train
             self.train()
             ts = timeit.default_timer()
@@ -232,6 +248,7 @@ class DeepONetCartesianProd(nn.Module):
 
             te = timeit.default_timer()
             self.print_logs(epoch, (te - ts))
+        self.epoch_start=epoch+1
         return self.logs
 
     def predict(self, x, device):
@@ -260,8 +277,8 @@ class DeepONetCartesianProd(nn.Module):
                 predictions = self((input_branch, input_trunk))
                 predictions = predictions.cpu().numpy()
 
-        return predictions    
-    
+        return predictions
+
     def save_logs(self, filebase):
         if self.logs is not None:
             if not os.path.exists(filebase):
@@ -283,6 +300,7 @@ class DeepONetCartesianProd(nn.Module):
     def load_weights(self, filepath):
         self.load_state_dict(torch.load(filepath))
         self.eval()
+
 
 # %%
 
@@ -331,35 +349,34 @@ class TripleCartesianProd(Dataset):
         #     output_data = self.transform(output_data)
         # TODO: make x_trunk lenght be 1
         if self.aux is not None:
-            aux= self.aux[idx]
+            aux = self.aux[idx]
             return (x_branch, x_trunk), aux, output_data
 
         else:
-            return (x_branch, x_trunk),self.aux, output_data
+            return (x_branch, x_trunk), self.aux, output_data
 
     @staticmethod
     def custom_collate_fn(batch):
         # Assuming data is a list of tuples (sample, label)
         # batch=[((inp,out)),...], len=batch_size
         # inp=(x_branch, x_trunk)
-        input,aux, out = zip(*batch)
+        input, aux, out = zip(*batch)
         out = torch.tensor(np.array(out))
         input_branch, input_trunk = zip(*input)
         input_branch = torch.tensor(np.array(input_branch))
         input_trunk = torch.tensor(np.array(input_trunk[0]))
         if aux[0] is None:
-            data=((input_branch, input_trunk), out)
- 
+            data = ((input_branch, input_trunk), out)
+
         else:
-            aux=torch.tensor(np.array(aux))
-            data=((input_branch, input_trunk), aux, out)
- 
+            aux = torch.tensor(np.array(aux))
+            data = ((input_branch, input_trunk), aux, out)
+
         return data
-            
-            
-     
+
 
 # %%
+
 
 # %%
 class EvaluateDeepONetPDEs:
@@ -369,30 +386,20 @@ class EvaluateDeepONetPDEs:
     """
 
     def __init__(self, operator):
-        self.op = operator
+        self.operator = operator
 
-        def op(inputs,model=None,aux=None):
-            ''' model: The modDeepOnetel to evaluate the derivative.'''
-            y = model(inputs)
-            # QB: inputs[1] is the input of the trunck
-            # QB: y[0] is the output corresponding
-            # to the first input sample of the branch input,
-            # each time we only consider one sample
-            return self.op(inputs[1], y[0][:, None], aux)
-
-        self.operator = op
-
-    def __call__(self, inputs,model=None,aux=None,stack=True):
+    def __call__(self, inputs, model=None, aux=None, stack=True):
         self.value = []
-        input_branch, input_trunck = inputs
+        input_branch, input_trunk = inputs
+        out = model((input_branch, input_trunk))
         if aux is not None:
-            for inp,aux_ in zip(input_branch,aux):
-                x = (inp[None, :], input_trunck)
-                self.value.append(self.operator(x,model,aux_[None, :]))
+            for aux_, y in zip(aux, out):
+                res = self.operator(y[:, None], input_trunk, aux_[:, None])
+                self.value.append(res)
         else:
-            for inp in input_branch:
-                x = (inp[None, :], input_trunck)
-                self.value.append(self.operator(x,model,aux))
+            for y in out:
+                res = self.operator(y[:, None], input_trunk)
+                self.value.append(res)
         if stack:
             self.value = torch.stack(self.value)
         return self.value
@@ -401,20 +408,53 @@ class EvaluateDeepONetPDEs:
         return self.value
 
 
-
 class PDELoss(torch.nn.modules.loss._Loss):
-    '''indices: list of indices of the output that we want to apply the loss to
-        generally is the points inside the doamin
-    '''
-    def __init__(self,indices,pde_evaluator, size_average=None, reduce=None, reduction: str = "mean"):
+    """indices: list of indices of the output that we want to apply the loss to
+    generally is the points inside the doamin
+    """
+
+    def __init__(
+        self,
+        indices,
+        pde_evaluator,
+        size_average=None,
+        reduce=None,
+        reduction: str = "mean",
+    ):
         super().__init__(size_average, reduce, reduction)
         self.indices = indices
-        self.pde_evaluator=pde_evaluator
-    def forward(self, y_pred=None, inputs=None,aux=None, model=None):
-        '''kwargs: dictionary of outputs of the model'''
+        self.pde_evaluator = pde_evaluator
+
+    def forward(self, y_pred=None, inputs=None, aux=None, model=None):
+        """kwargs: dictionary of outputs of the model"""
         inputs[1].requires_grad_(True)
-        input_=(inputs[0],inputs[1][self.indices,:])
-        aux=aux[:,self.indices]
-        losses= self.pde_evaluator(input_,model,aux)
+        input_ = (inputs[0], inputs[1][self.indices, :])
+        aux = aux[:, self.indices]
+        losses = self.pde_evaluator(input_, model, aux)
         return torch.mean(torch.square(losses))
-        
+
+
+# %%
+
+
+def jacobian(y, x, create_graph=True):
+    dydx = torch.autograd.grad(y, x, torch.ones_like(y), create_graph=create_graph)[0]
+    return dydx
+
+
+def hessian(y, x, create_graph=True):
+    dydx = jacobian(y, x, create_graph=True)  # (nb,nx)
+    dydx_dx = []
+    for i in range(dydx.shape[1]):
+        dydxi = dydx[:, i : i + 1]
+        dydxidx = jacobian(dydxi, x, create_graph=create_graph)  # (nb,nx)
+        dydx_dx.append(dydxidx)
+
+    dydx2 = torch.stack(dydx_dx, dim=1)  # (nb,nx,nx)
+    return dydx2
+
+
+def laplacian(y, x, create_graph=True):
+    dydx2 = hessian(y, x, create_graph=create_graph)
+    laplacian = torch.diagonal(dydx2, dim1=1, dim2=2)
+    return laplacian

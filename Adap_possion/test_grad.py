@@ -59,9 +59,11 @@ net = dde.nn.DeepONetCartesianProd(
 # %%
 # Define and train model
 model = dde.Model(pde_op, net)
-dde.optimizers.set_LBFGS_options(maxiter=1000)
-model.compile("L-BFGS")
-model.train()
+# dde.optimizers.set_LBFGS_options(maxiter=1000)
+# model.compile("L-BFGS")
+# model.train()
+model.compile("adam", lr=0.001)
+model.train(iterations=1000)
 # %%
 # Plot realisations of f(x)
 n = 4
@@ -105,7 +107,7 @@ def second_derivative(x, y,aux=None):
     dydx2 = torch.autograd.grad(
         dy_dx,
         x,
-        grad_outputs=torch.ones_like(dydx),
+        grad_outputs=torch.ones_like(dy_dx),
         create_graph=True,
     )[0]
 
@@ -167,13 +169,7 @@ for i in range(4):
 dydxx_v = torch.stack(dydxx_v).detach().cpu().numpy()
 # %%
 
-# %%
-# dydxx_v=[]
-# for f in fx:
-#     dydxx.eval((f[None,:],x))
-#     dydxx_v.append(dydxx.get_values())
-dydxx_v=dydxx.eval((fx,x))
-dydxx_v=dydxx.get_values()
+
 # %%
 fx_ = -space.eval_batch(features, x)
 
