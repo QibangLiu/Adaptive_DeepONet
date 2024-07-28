@@ -91,21 +91,24 @@ class NameGenerator:
 
 
 class DeepONetCartesianProd(nn.Module):
-    def __init__(self, layer_sizes_branch, layer_sizes_trunk, activation="tanh"):
+    def __init__(
+        self,
+        layer_sizes_branch,
+        layer_sizes_trunk,
+        activation={"branch": nn.ReLU(), "trunk": nn.Tanh()},
+    ):
         super().__init__()
         if isinstance(activation, dict):
             self.activation_branch = activation["branch"]
             self.activation_trunk = activation["trunk"]
         else:
             self.activation_branch = self.activation_trunk = activation
-        self.activation_branch = nn.Tanh()
-        self.activation_trunk = nn.Tanh()
         self.trunk = self.build_net(layer_sizes_trunk, self.activation_trunk)
         self.branch = self.build_net(layer_sizes_branch, self.activation_branch)
         self.b = nn.Parameter(torch.tensor(0.0))
         self.name_generator = NameGenerator()
         self.logs = {}
-        self.epoch_start=0
+        self.epoch_start = 0
 
     def build_net(self, layer_sizes, activation):
         # User-defined network
@@ -176,16 +179,16 @@ class DeepONetCartesianProd(nn.Module):
             self.logs[key].append(sum(losses_vals[key]) / batch_size)
 
     def print_logs(self, epoch, time):
-        print(f"Epoch {epoch + 1} took {time:.2f}s", end=", ")
+        print(f"Epochs {epoch + 1} took {time:.2f}s", end=", ")
         for key, val in self.logs.items():
             if val:
                 print(f"{key}: {val[-1]:.4e}", end=", ")
         print()
 
     def evaluate_losses(self, data, device="cpu"):
-        inputs_, y_true = data
-        y_true = y_true.to(device)
-        input_branch, input_trunk = (inputs_[0].to(device), inputs_[1].to(device))
+        inputs_, y_true = data[0], data[1]
+        #y_true = y_true.to(device)
+        input_branch, input_trunk = inputs_[0], inputs_[1]
         y_pred = self((input_branch, input_trunk))
         # TODO: Add multiple loss function
         loss = self.loss_fn(y_pred, y_true)
@@ -214,14 +217,20 @@ class DeepONetCartesianProd(nn.Module):
         return val_loss
 
     def fit(
-        self, train_loader, val_loader=None, device="cpu", epochs=10, callbacks=None
+        self,
+        train_loader,
+        val_loader=None,
+        device="cpu",
+        epochs=10,
+        callbacks=None,
+        print_freq=20,
     ):
+        ts = timeit.default_timer()
         self.to(device)
         loss_vals = {}
-        for epoch in range(self.epoch_start,self.epoch_start+epochs):
+        for epoch in range(self.epoch_start, self.epoch_start + epochs):
             # train
             self.train()
-            ts = timeit.default_timer()
             loss_vals = {}
             for data in train_loader:
                 loss = self.train_step(data, device)
@@ -247,11 +256,14 @@ class DeepONetCartesianProd(nn.Module):
                 callbacks(epoch, self.logs, self)
 
             te = timeit.default_timer()
-            self.print_logs(epoch, (te - ts))
-        self.epoch_start=epoch+1
+            if (epoch+1) % print_freq == 0:
+                self.print_logs(epoch, (te - ts))
+        print("Total training time:.%2f s" % (te - ts))
+        self.epoch_start = epoch + 1
         return self.logs
 
     def predict(self, x, device):
+        ts = timeit.default_timer()
         # Set the model to evaluation mode
         self.eval()  # Set the model to evaluation mode
         with torch.no_grad():
@@ -276,7 +288,8 @@ class DeepONetCartesianProd(nn.Module):
                     input_branch, input_trunk = (x[0].to(device), x[1].to(device))
                 predictions = self((input_branch, input_trunk))
                 predictions = predictions.cpu().numpy()
-
+        te = timeit.default_timer()
+        print("Total predicting time:.%2f s" % (te - ts))
         return predictions
 
     def save_logs(self, filebase):
@@ -297,8 +310,9 @@ class DeepONetCartesianProd(nn.Module):
     def save_weights(self, filepath):
         torch.save(self.state_dict(), filepath)
 
-    def load_weights(self, filepath):
-        self.load_state_dict(torch.load(filepath))
+    def load_weights(self, filepath, device="cpu"):
+        state_dict = torch.load(filepath, map_location=device)
+        self.load_state_dict(state_dict)
         self.eval()
 
 
@@ -350,17 +364,17 @@ class TripleCartesianProd(Dataset):
         # TODO: make x_trunk lenght be 1
         if self.aux is not None:
             aux = self.aux[idx]
-            return (x_branch, x_trunk), aux, output_data
+            return (x_branch, x_trunk), output_data, aux
 
         else:
-            return (x_branch, x_trunk), self.aux, output_data
+            return (x_branch, x_trunk), output_data, self.aux
 
     @staticmethod
     def custom_collate_fn(batch):
         # Assuming data is a list of tuples (sample, label)
         # batch=[((inp,out)),...], len=batch_size
         # inp=(x_branch, x_trunk)
-        input, aux, out = zip(*batch)
+        input, out, aux = zip(*batch)
         out = torch.tensor(np.array(out))
         input_branch, input_trunk = zip(*input)
         input_branch = torch.tensor(np.array(input_branch))
@@ -370,7 +384,7 @@ class TripleCartesianProd(Dataset):
 
         else:
             aux = torch.tensor(np.array(aux))
-            data = ((input_branch, input_trunk), aux, out)
+            data = ((input_branch, input_trunk), out, aux)
 
         return data
 
@@ -456,5 +470,6 @@ def hessian(y, x, create_graph=True):
 
 def laplacian(y, x, create_graph=True):
     dydx2 = hessian(y, x, create_graph=create_graph)
-    laplacian = torch.diagonal(dydx2, dim1=1, dim2=2)
+    laplacian = torch.sum(torch.diagonal(dydx2, dim1=1, dim2=2), dim=1)
+    laplacian = laplacian.unsqueeze(1)
     return laplacian

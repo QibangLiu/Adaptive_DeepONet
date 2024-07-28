@@ -4,7 +4,7 @@
 #SBATCH --account=bblv-delta-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --partition=gpuA40x4-interactive      # <- or one of: gpuA100x4 gpuA40x4 gpuA100x8 gpuMI100x8
+#SBATCH --partition=gpuA100x4-interactive      # <- or one of: gpuA100x4 gpuA40x4 gpuA100x8 gpuMI100x8
 #SBATCH --time=01:00:00      # hh:mm:ss for the jo
 #SBATCH --mem=199g #199?
 

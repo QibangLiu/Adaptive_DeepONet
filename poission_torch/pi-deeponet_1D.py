@@ -59,7 +59,7 @@ train_loader = DataLoader(
 
 
 # %%
-def equation(x, y, aux=None):
+def equation(y,x, aux=None):
     dydx = torch.autograd.grad(
         outputs=y, inputs=x, grad_outputs=torch.ones_like(y), create_graph=True
     )[0]
@@ -72,7 +72,7 @@ def equation(x, y, aux=None):
     return -dydx2 - aux
 
 
-def equation(x, y, f):
+def equation(y,x, f=None):
     #dy_xx = dde.grad.hessian(y, x)
     dy_xx=DeepONet.laplacian(y, x)
     return -dy_xx - f
@@ -98,7 +98,7 @@ class PI_DeepONet(DeepONet.DeepONetCartesianProd):
         super().__init__(*args, **kwargs)
 
     def evaluate_losses(self, data, device="cpu"):
-        inputs, aux, _ = data
+        inputs, _,aux = data
         input_branch, input_trunk = inputs[0].to(device), inputs[1].to(device)
         aux = aux.to(device)
         input_trunk.requires_grad_(True)
