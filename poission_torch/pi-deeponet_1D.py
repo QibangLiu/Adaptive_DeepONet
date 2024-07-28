@@ -38,16 +38,17 @@ interior_indices = np.where(interior_mask)[0]
 
 
 # %%
-x_train = (fx, evaluation_points)
-y_train = np.zeros((num_function, num_eval_points))
-aux = fx
-
-# %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dataset_train = DeepONet.TripleCartesianProd(x_train, y_train, aux)
-# %%
-# dataLolder_train = DataLoader(dataset_train, batch_size=64)
 
+x_train = (torch.tensor(fx).to(device), torch.tensor(evaluation_points).to(device))
+y_train = np.zeros((num_function, num_eval_points))
+y_train = torch.tensor(y_train).to(device)
+aux = x_train[0]
+
+# %%
+
+
+dataset_train = DeepONet.TripleCartesianProd(x_train, y_train, aux)
 
 train_loader = DataLoader(
     dataset_train,
@@ -56,25 +57,17 @@ train_loader = DataLoader(
     generator=torch.Generator(device=device),
     collate_fn=dataset_train.custom_collate_fn,
 )
-
-
 # %%
-def equation(y,x, aux=None):
-    dydx = torch.autograd.grad(
-        outputs=y, inputs=x, grad_outputs=torch.ones_like(y), create_graph=True
-    )[0]
-    dydx2 = torch.autograd.grad(
-        dydx,
-        x,
-        grad_outputs=torch.ones_like(dydx),
-        create_graph=True,
-    )[0]
-    return -dydx2 - aux
+for data in train_loader:
+    print(type(data))
+    inputs, targets, aux = data
+    break
+# %%
 
 
-def equation(y,x, f=None):
-    #dy_xx = dde.grad.hessian(y, x)
-    dy_xx=DeepONet.laplacian(y, x)
+def equation(y, x, f=None):
+    # dy_xx = dde.grad.hessian(y, x)
+    dy_xx = DeepONet.laplacian(y, x)
     return -dy_xx - f
 
 
@@ -97,15 +90,14 @@ class PI_DeepONet(DeepONet.DeepONetCartesianProd):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def evaluate_losses(self, data, device="cpu"):
-        inputs, _,aux = data
-        input_branch, input_trunk = inputs[0].to(device), inputs[1].to(device)
-        aux = aux.to(device)
+    def evaluate_losses(self, data):
+        inputs, _, aux = data
+        input_branch, input_trunk = inputs
         input_trunk.requires_grad_(True)
         out = self((input_branch, input_trunk))
         pde_losses = []
         for aux_, y in zip(aux, out):
-            res = equation(input_trunk, y[:, None], aux_[:, None])
+            res = equation(y[:, None], input_trunk, aux_[:, None])
             pde_losses.append(torch.mean(torch.square(res)))
         pde_loss_ms = torch.mean((torch.stack(pde_losses)))
         bc_l = bc_loss(out)
@@ -121,17 +113,14 @@ class PI_DeepONet(DeepONet.DeepONetCartesianProd):
 # %%
 p = 32
 model = PI_DeepONet(
-    [
-        num_eval_points,
-        32,
-        p,
-    ],
-    [1, 32, p],
+    [num_eval_points, 32, 32, 32, p],
+    [1, 32, 32, 32, p]
 )
 
 # %%
-
-model.compile(optimizer=torch.optim.Adam, lr=0.005)  # torch.optim.Adam
+optimizer = torch.optim.Adam(model.parameters(), lr=5e-3)
+lr_scheduler=torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.996)
+model.compile(optimizer=optimizer)  # torch.optim.Adam
 
 model.to(device)
 # keras.backend.set_value(model.optimizer.lr, 5e-4)
@@ -141,11 +130,11 @@ checkpoint_callback = DeepONet.ModelCheckpoint(
 )
 
 
-
 # %%
 torch.cuda.empty_cache()  # Clear cached memory
-h = model.fit(train_loader, device=device, epochs=2000)
+h = model.fit(train_loader, epochs=1000, callbacks=checkpoint_callback)
 model.save_logs(filebase)
+model.load_weights(checkpoint_fname,device=device)
 # %%
 fig = plt.figure()
 ax = plt.subplot(1, 1, 1)
@@ -159,37 +148,34 @@ ax.set_yscale("log")
 laplace_op = DeepONet.EvaluateDeepONetPDEs(DeepONet.laplacian)
 
 # %%
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-x = evaluation_points
-fx_t = torch.tensor(fx).to(device)
-x_t = torch.tensor(x, requires_grad=True).to(device)
-
-laplace_op_val = laplace_op((fx_t, x_t), model=model)
+laplace_op_val = laplace_op(x_train, model=model)
 dydxx_v = laplace_op_val.detach().cpu().numpy()
 dydxx_v.shape
 # %%
-fx_ = -space.eval_batch(features, x)
+x = evaluation_points
+fx_ = -fx
 
 # %%
 fig = plt.figure(figsize=(7, 8))
 i = 0
+id = 26
 ax = plt.subplot(2, 2, i + 1)
-ax.plot(x, dydxx_v[i], "r", label="dydx2")
-ax.plot(x, fx_[i], "--b", label="f")
+ax.plot(x, dydxx_v[i + id], "r", label="dydx2")
+ax.plot(x, fx_[i + id], "--b", label="f")
 ax.legend()
 i = 1
 ax = plt.subplot(2, 2, i + 1)
-ax.plot(x, dydxx_v[i], "r", label="dydx2")
-ax.plot(x, fx_[i], "--b", label="f")
+ax.plot(x, dydxx_v[i + id], "r", label="dydx2")
+ax.plot(x, fx_[i + id], "--b", label="f")
 ax.legend()
 i = 2
 ax = plt.subplot(2, 2, i + 1)
-ax.plot(x, dydxx_v[i], "r", label="dydx2")
-ax.plot(x, fx_[i], "--b", label="f")
+ax.plot(x, dydxx_v[i + id], "r", label="dydx2")
+ax.plot(x, fx_[i + id], "--b", label="f")
 ax.legend()
 i = 3
 ax = plt.subplot(2, 2, i + 1)
-ax.plot(x, dydxx_v[i], "r", label="dydx2")
-ax.plot(x, fx_[i], "--b", label="f")
+ax.plot(x, dydxx_v[i + id], "r", label="dydx2")
+ax.plot(x, fx_[i + id], "--b", label="f")
 ax.legend()
 # %%

@@ -143,15 +143,15 @@ class DeepONetCartesianProd(nn.Module):
     def compile(
         self,
         optimizer,
-        lr=None,
         loss=None,
         loss_names=None,
+        lr_scheduler=None,
         metrics=None,
         decay=None,
         loss_weights=None,
         external_trainable_variables=None,
     ):
-        self.optimizer = optimizer(self.parameters(), lr=lr)
+        self.optimizer = optimizer
         # TODO: Add multiple loss function
         self.loss_fn = loss
         # TODO:
@@ -159,7 +159,9 @@ class DeepONetCartesianProd(nn.Module):
         self.decay = decay
         self.loss_weights = loss_weights
         self.external_trainable_variables = external_trainable_variables
-
+        self.lr_scheduler = lr_scheduler
+        if self.lr_scheduler is not None:
+            self.logs["lr"] = []
         # def compile(self, optimizer, lr=0.001):
         #     self.optimizer = torch.optim.LBFGS(
         #         self.parameters(),
@@ -185,9 +187,8 @@ class DeepONetCartesianProd(nn.Module):
                 print(f"{key}: {val[-1]:.4e}", end=", ")
         print()
 
-    def evaluate_losses(self, data, device="cpu"):
+    def evaluate_losses(self, data):
         inputs_, y_true = data[0], data[1]
-        #y_true = y_true.to(device)
         input_branch, input_trunk = inputs_[0], inputs_[1]
         y_pred = self((input_branch, input_trunk))
         # TODO: Add multiple loss function
@@ -195,7 +196,7 @@ class DeepONetCartesianProd(nn.Module):
         loss_dic = {"loss": loss.item()}
         return loss, loss_dic
 
-    def train_step(self, data, device="cpu"):
+    def train_step(self, data):
 
         self.optimizer.zero_grad()
         loss_dic = {}
@@ -204,13 +205,13 @@ class DeepONetCartesianProd(nn.Module):
         #     for key,value in loss_dic_.items():
         #         loss_dic[key]=value
         #     return loss
-        loss, loss_dic = self.evaluate_losses(data, device)
+        loss, loss_dic = self.evaluate_losses(data)
         loss.backward()
         self.optimizer.step()
         return loss_dic
 
-    def validate_step(self, data, device="cpu"):
-        _, loss_dic = self.evaluate_losses(data, device)
+    def validate_step(self, data):
+        _, loss_dic = self.evaluate_losses(data)
         val_loss = {}
         for key, value in loss_dic.items():
             val_loss["val_" + key] = value
@@ -220,32 +221,33 @@ class DeepONetCartesianProd(nn.Module):
         self,
         train_loader,
         val_loader=None,
-        device="cpu",
         epochs=10,
         callbacks=None,
         print_freq=20,
     ):
         ts = timeit.default_timer()
-        self.to(device)
         loss_vals = {}
         for epoch in range(self.epoch_start, self.epoch_start + epochs):
             # train
             self.train()
             loss_vals = {}
             for data in train_loader:
-                loss = self.train_step(data, device)
+                loss = self.train_step(data)
                 for key, value in loss.items():
                     if key not in loss_vals:
                         loss_vals[key] = []
                     loss_vals[key].append(value)
             self.collect_logs(loss_vals, len(train_loader))
-            # validate
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+                self.logs["lr"].append(self.lr_scheduler.get_last_lr()[0])
+                # validate
             if val_loader is not None:
                 self.eval()
                 loss_vals = {}
                 with torch.no_grad():
                     for data in val_loader:
-                        loss = self.validate_step(data, device)
+                        loss = self.validate_step(data)
                         for key, value in loss.items():
                             if key not in loss_vals:
                                 loss_vals[key] = []
@@ -262,7 +264,7 @@ class DeepONetCartesianProd(nn.Module):
         self.epoch_start = epoch + 1
         return self.logs
 
-    def predict(self, x, device):
+    def predict(self, x,device="cpu"):  
         ts = timeit.default_timer()
         # Set the model to evaluation mode
         self.eval()  # Set the model to evaluation mode
@@ -270,23 +272,19 @@ class DeepONetCartesianProd(nn.Module):
             if isinstance(x, torch.utils.data.DataLoader):
                 predictions = []
                 for inputs, _ in x:
-                    input_branch, input_trunk = (
-                        inputs[0].to(device),
-                        inputs[1].to(device),
-                    )
                     # Forward pass
-                    preds = self((input_branch, input_trunk))
+                    preds = self(inputs)
                     predictions.extend(preds.cpu().numpy())
                 predictions = np.array(predictions)
             else:
                 if not isinstance(x[0], torch.Tensor):
-                    input_branch, input_trunk = (
+                    inputs = (
                         torch.Tensor(x[0]).to(device),
                         torch.Tensor(x[1]).to(device),
                     )
                 else:
-                    input_branch, input_trunk = (x[0].to(device), x[1].to(device))
-                predictions = self((input_branch, input_trunk))
+                    inputs = x
+                predictions = self(inputs)
                 predictions = predictions.cpu().numpy()
         te = timeit.default_timer()
         print("Total predicting time:.%2f s" % (te - ts))
@@ -317,8 +315,6 @@ class DeepONetCartesianProd(nn.Module):
 
 
 # %%
-
-
 class TripleCartesianProd(Dataset):
     """Dataset with each data point as a triple. The ordered pair of the first two
     elements are created from a Cartesian product of the first two lists. If we compute
@@ -367,7 +363,7 @@ class TripleCartesianProd(Dataset):
             return (x_branch, x_trunk), output_data, aux
 
         else:
-            return (x_branch, x_trunk), output_data, self.aux
+            return (x_branch, x_trunk), output_data, None
 
     @staticmethod
     def custom_collate_fn(batch):
@@ -375,20 +371,19 @@ class TripleCartesianProd(Dataset):
         # batch=[((inp,out)),...], len=batch_size
         # inp=(x_branch, x_trunk)
         input, out, aux = zip(*batch)
-        out = torch.tensor(np.array(out))
+        out=torch.stack(out)
+        
         input_branch, input_trunk = zip(*input)
-        input_branch = torch.tensor(np.array(input_branch))
-        input_trunk = torch.tensor(np.array(input_trunk[0]))
+        input_branch=torch.stack(input_branch)
+        input_trunk = input_trunk[0]
         if aux[0] is None:
             data = ((input_branch, input_trunk), out)
 
         else:
-            aux = torch.tensor(np.array(aux))
+            aux = torch.stack(aux)
             data = ((input_branch, input_trunk), out, aux)
 
         return data
-
-
 # %%
 
 

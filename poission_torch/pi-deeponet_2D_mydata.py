@@ -78,19 +78,19 @@ print("xy_train_testing.shape", xy_train_testing.shape)
 
 
 # %%
-x_train = (u0_train, xy_train_testing)
-y_train = s_train
-x_test = (u0_testing, xy_train_testing)
-y_test = s_testing
-
-
-# %%
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dataset_train = DeepONet.TripleCartesianProd(x_train, y_train,u0_train_raw)
-#dataset_test = DeepONet.TripleCartesianProd(x_test, y_test,u0_testing_raw)
-# %%
-# dataLolder_train = DataLoader(dataset_train, batch_size=64)
+x_train = (torch.tensor(u0_train).to(device), torch.tensor(xy_train_testing).to(device))
+y_train = torch.tensor(s_train).to(device)
+aux_train = torch.tensor(u0_train_raw).to(device)
+x_test = (
+    torch.tensor(u0_testing).to(device),
+    torch.tensor(xy_train_testing).to(device),
+)
+y_test = torch.tensor(s_testing).to(device)
+aux_test = torch.tensor(u0_testing_raw).to(device)
 
+dataset_train = DeepONet.TripleCartesianProd(x_train, y_train,aux_train)
+#dataset_test = DeepONet.TripleCartesianProd(x_test, y_test,u0_testing_raw)
 
 train_loader = DataLoader(
     dataset_train,
@@ -141,10 +141,9 @@ class PI_DeepONet(DeepONet.DeepONetCartesianProd):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def evaluate_losses(self, data, device="cpu"):
+    def evaluate_losses(self, data):
         inputs, _,aux, = data
-        input_branch, input_trunk = inputs[0].to(device), inputs[1].to(device)
-        aux = aux.to(device)
+        input_branch, input_trunk = inputs
         input_trunk.requires_grad_(True)
         out = self((input_branch, input_trunk))
         pde_losses = []
@@ -169,7 +168,6 @@ model = PI_DeepONet(
     [2, 100, 100, 100, 100,100,100],activation={"branch": nn.ReLU(), "trunk": nn.Tanh()},
 )
 
-# keras.backend.set_value(model.optimizer.lr, 5e-4)
 checkpoint_fname = os.path.join(filebase, "model.ckpt")
 checkpoint_callback = DeepONet.ModelCheckpoint(
     checkpoint_fname, monitor="loss", save_best_only=True
@@ -178,7 +176,8 @@ checkpoint_callback = DeepONet.ModelCheckpoint(
 model.load_weights(checkpoint_fname,device)
 h=model.load_logs(filebase)
 # %%
-model.compile(optimizer=torch.optim.Adam, lr=0.001,loss=nn.MSELoss())  # torch.optim.Adam
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+model.compile(optimizer=optimizer, loss=nn.MSELoss())  # torch.optim.Adam
 model.to(device)
 
 
@@ -187,26 +186,25 @@ torch.cuda.empty_cache()  # Clear cached memory
 model.save_logs(filebase)
 fig = plt.figure()
 ax = plt.subplot(1, 1, 1)
-ax.plot(h["loss"], label="pde_loss")
-#ax.plot(h["bc_loss"], label="bc_loss")
+ax.plot(h["pde_loss"], label="pde_loss")
+ax.plot(h["bc_loss"], label="bc_loss")
 ax.legend()
 ax.set_yscale("log")
 
 
 
 # %%
-x_plot=x_train
-input_branch, input_trunk = x_plot[0], x_plot[1]
-input_branch = torch.tensor(input_branch).to(device)
-input_trunk = torch.tensor(input_trunk,requires_grad=True).to(device)
-y_plot = s_train_raw
-u0_plot_raw=u0_train_raw
-#y_pred = model.predict((input_branch,input_trunk), device)
+x_validate = x_test
+y_validate = s_testing_raw
+u0_validate = u0_testing_raw
+
+input_branch, input_trunk = x_validate[0], x_validate[1]
+input_trunk.requires_grad_(True)
 out=model((input_branch,input_trunk))
 y_pred=out.detach().cpu().numpy()
 error_s = []
-for i in range(len(y_plot)):
-    error_s_tmp = np.linalg.norm(y_plot[i] - y_pred[i]) / np.linalg.norm(y_plot[i])
+for i in range(len(y_validate)):
+    error_s_tmp = np.linalg.norm(y_validate[i] - y_pred[i]) / np.linalg.norm(y_validate[i])
     error_s.append(error_s_tmp)
 error_s = np.stack(error_s)
 fig = plt.figure()
@@ -234,21 +232,21 @@ nr, nc = 3, 3
 fig = plt.figure(figsize=(18, 15))
 for i, index in enumerate(min_median_max_index):
 
-    u0_testing_nx_ny = u0_plot_raw[index].reshape(Ny, Nx)
-    s_testing_nx_ny = y_plot[index].reshape(Ny, Nx)
+    u0_validate_nx_ny = u0_validate[index].reshape(Ny, Nx)
+    y_validate_nx_ny = y_validate[index].reshape(Ny, Nx)
     s_pred_nx_ny = y_pred[index].reshape(Ny, Nx)
-    vmin = min(s_testing_nx_ny.min(), s_pred_nx_ny.min())
-    vmax = max(s_testing_nx_ny.max(), s_pred_nx_ny.max())
+    vmin = min(y_validate_nx_ny.min(), s_pred_nx_ny.min())
+    vmax = max(y_validate_nx_ny.max(), s_pred_nx_ny.max())
 
     ax = plt.subplot(nr, nc, nc * i + 1)
     # py.figure(figsize = (14,7))
-    c = ax.contourf(x_grid, y_grid, u0_testing_nx_ny, 20, cmap="jet")
+    c = ax.contourf(x_grid, y_grid, u0_validate_nx_ny, 20, cmap="jet")
     ax.set_title(r"Source Distrubution")
     plt.colorbar(c)
     plt.tight_layout()
     ax = plt.subplot(nr, nc, nc * i + 2)
     # py.figure(figsize = (14,7))
-    c1 = ax.contourf(x_grid, y_grid, s_testing_nx_ny, 20, cmap="jet")
+    c1 = ax.contourf(x_grid, y_grid, y_validate_nx_ny, 20, cmap="jet")
     ax.set_title(r"Reference Solution")
     cbar = fig.colorbar(c1, ax=ax)
     plt.tight_layout()
@@ -259,16 +257,6 @@ for i, index in enumerate(min_median_max_index):
     cbar = fig.colorbar(c1, ax=ax)
     plt.tight_layout()
 
-    # if index == min_index:
-    #     plt.savefig("temperature_min_error_5000_3.jpg", dpi=300)
-    # if index == median_index:
-    #     plt.savefig("temperature_median_error_5000_3.jpg", dpi=300)
-    # if index == max_index:
-    #     plt.savefig("temperature_max_error_5000_3.jpg", dpi=300)
-    # plt.savefig("temperature_sample{}_5000_3.jpg".format(index), dpi=300)
-    # plt.show()
-
-
 # %%
 # %%
 def LaplaceOperator2D(y, x,aux=None):
@@ -276,40 +264,9 @@ def LaplaceOperator2D(y, x,aux=None):
 
     return -0.01 * (dydx2) 
 
-# def LaplaceOperator2D(y,x,f=None):
-#     dydxx=dde.grad.hessian(y, x, i=0, j=0)
-#     dydyy=dde.grad.hessian(y, x, i=1, j=1)
-#     #print('shapes', dydxx.shape, dydyy.shape, f.shape)
-#     return -0.01*(dydxx+dydyy)
 
 # %%
 laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D)
-
-# %%
-
-def jacobian(y, x, create_graph=True):
-    dydx = torch.autograd.grad(y, x, torch.ones_like(y), create_graph=create_graph)[0]
-    return dydx
-
-
-def hessian(y, x, create_graph=True):
-    dydx = jacobian(y, x, create_graph=True)  # (nb,nx)
-    dydx_dx = []
-    for i in range(dydx.shape[1]):
-        dydxi = dydx[:, i : i + 1]
-        dydxidx = jacobian(dydxi, x, create_graph=create_graph)  # (nb,nx)
-        dydx_dx.append(dydxidx)
-
-    dydx2 = torch.stack(dydx_dx, dim=1)  # (nb,nx,nx)
-    return dydx2
-def laplacian(y, x, create_graph=True):
-    dydx2 = hessian(y, x, create_graph=create_graph)
-    laplacian = torch.sum(torch.diagonal(dydx2, dim1=1, dim2=2),dim=1)
-    laplacian = laplacian.unsqueeze(1)
-    return laplacian
-dydx= laplacian(out[0][:,None], input_trunk)
-# %%
-input_trunk.requires_grad_(True)
 laplace_op_val = laplace_op((input_branch[min_median_max_index], input_trunk),model=model)
 laplace_op_val=laplace_op_val.detach().cpu().numpy()
 # %%
@@ -319,24 +276,35 @@ fig = plt.figure(figsize=(8, 10))
 
 for i, index in enumerate(min_median_max_index):
 
-    vmin = np.min(u0_plot_raw[index])
-    vmax = np.max(u0_plot_raw[index])
+    vmin = np.min(u0_validate[index])
+    vmax = np.max(u0_validate[index])
 
     ax = plt.subplot(nr, nc, nc * i + 1)
     # py.figure(figsize = (14,7))
     c1 = ax.contourf(
-        x_grid, y_grid, u0_plot_raw[index].reshape(Ny, Nx), 20, cmap="jet"
+        x_grid,
+        y_grid,
+        u0_validate[index].reshape(Ny, Nx),
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
     )
     ax.set_title(r"Source Distrubution")
     cbar = fig.colorbar(c1, ax=ax)
     plt.tight_layout()
     ax = plt.subplot(nr, nc, nc * i + 2)
     # py.figure(figsize = (14,7))
-    c2 = ax.contourf(x_grid, y_grid, laplace_op_val[i].reshape(Ny, Nx), 20, cmap="jet")
+    c2 = ax.contourf(
+        x_grid,
+        y_grid,
+        laplace_op_val[i].reshape(Ny, Nx),
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
     ax.set_title(r"$-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
     cbar = fig.colorbar(c2, ax=ax)
     plt.tight_layout()
 
-
-
-# %%
