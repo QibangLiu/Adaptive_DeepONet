@@ -3,6 +3,9 @@ import tensorflow as tf
 from tensorflow import keras
 import os
 import json
+import deepxde as dde
+from deepxde import utils
+import numpy as np
 # %%
 class DeepONetCartesianProd(keras.Model):
     def __init__(self, layer_sizes_branch, layer_sizes_trunk, activation="tanh"):
@@ -202,3 +205,41 @@ class TripleCartesianProd:
         )
         return dataset
 
+
+
+def LaplaceOperator2D(x, y):
+    dydx2 = dde.grad.hessian(y, x, i=0, j=0)
+    dydy2 = dde.grad.hessian(y, x, i=1, j=1)
+    return dydx2 + dydy2
+
+
+class EvaluateDeepONetPDEs:
+    """Generates the derivative of the outputs with respect to the trunck inputs.
+    Args:
+        model: DeepOnet.
+        operator: Operator to apply to the outputs for derivative.
+    """
+    def __init__(self, model, operator):
+        self.op = operator
+        self.model = model
+        @tf.function
+        def op(inputs):
+            y = self.model(inputs)
+            # QB: inputs[1] is the input of the trunck
+            # QB: y[0] is the output corresponding
+            # to the first input sample of the branch input,
+            # each time we only consider one sample
+            return self.op(inputs[1], y[0][:, None])
+        self.tf_op = op
+
+    def __call__(self, inputs):
+        self.value = []
+        input_branch, input_trunck = inputs
+        for inp in input_branch:
+            x = (inp[None, :], input_trunck)
+            self.value.append(utils.to_numpy(self.tf_op(x)))
+        self.value = np.array(self.value)
+        return self.value
+
+    def get_values(self):
+        return self.value

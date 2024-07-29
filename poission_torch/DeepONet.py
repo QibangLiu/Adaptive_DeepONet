@@ -258,13 +258,13 @@ class DeepONetCartesianProd(nn.Module):
                 callbacks(epoch, self.logs, self)
 
             te = timeit.default_timer()
-            if (epoch+1) % print_freq == 0:
+            if (epoch + 1) % print_freq == 0:
                 self.print_logs(epoch, (te - ts))
         print("Total training time:.%2f s" % (te - ts))
         self.epoch_start = epoch + 1
         return self.logs
 
-    def predict(self, x,device="cpu"):  
+    def predict(self, x, device="cpu"):
         ts = timeit.default_timer()
         # Set the model to evaluation mode
         self.eval()  # Set the model to evaluation mode
@@ -371,10 +371,10 @@ class TripleCartesianProd(Dataset):
         # batch=[((inp,out)),...], len=batch_size
         # inp=(x_branch, x_trunk)
         input, out, aux = zip(*batch)
-        out=torch.stack(out)
-        
+        out = torch.stack(out)
+
         input_branch, input_trunk = zip(*input)
-        input_branch=torch.stack(input_branch)
+        input_branch = torch.stack(input_branch)
         input_trunk = input_trunk[0]
         if aux[0] is None:
             data = ((input_branch, input_trunk), out)
@@ -384,6 +384,8 @@ class TripleCartesianProd(Dataset):
             data = ((input_branch, input_trunk), out, aux)
 
         return data
+
+
 # %%
 
 
@@ -394,20 +396,77 @@ class EvaluateDeepONetPDEs:
         operator: Operator to apply to the outputs for derivative.
     """
 
-    def __init__(self, operator):
+    def __init__(self, operator,model=None):
         self.operator = operator
+        self.model=model
 
-    def __call__(self, inputs, model=None, aux=None, stack=True):
+    def __call__(self, inputs,  aux=None, create_graph=False, stack=True):
         self.value = []
         input_branch, input_trunk = inputs
-        out = model((input_branch, input_trunk))
+        out = self.model((input_branch, input_trunk))
         if aux is not None:
-            for aux_, y in zip(aux, out):
-                res = self.operator(y[:, None], input_trunk, aux_[:, None])
+            for i, (aux_, y) in enumerate(zip(aux, out)):
+                if i == len(input_branch) - 1:
+                    cg = create_graph
+                else:
+                    cg = True
+                res = self.operator(
+                    y[:, None], input_trunk, aux_[:, None], create_graph=cg
+                )
                 self.value.append(res)
         else:
-            for y in out:
-                res = self.operator(y[:, None], input_trunk)
+            for i, y in enumerate(out):
+                if i == len(input_branch) - 1:
+                    cg = create_graph
+                else:
+                    cg = True
+                res = self.operator(y[:, None], input_trunk, create_graph=cg)
+                self.value.append(res)
+        if stack:
+            self.value = torch.stack(self.value)
+        return self.value
+
+    def get_values(self):
+        return self.value
+
+
+class EvaluateDeepONetPDEs_NoUseAnyMore:
+    """
+     slow and memory consuming
+    Generates the derivative of the outputs with respect to the trunck inputs.
+    Args:
+        model: DeepOnet.
+        operator: Operator to apply to the outputs for derivative.
+    """
+
+    def __init__(self, operator, model):
+        self.operator = operator
+        self.model = model
+
+        def op(inputs, aux=None):
+            y = self.model(inputs)
+            # QB: inputs[1] is the input of the trunck
+            # QB: y[0] is the output corresponding
+            # to the Only input sample of the branch input,
+            # each time we only consider one sample
+            return self.op(y[0][:, None], inputs[1], aux=aux)
+
+        self.torch_op = op
+
+    def __call__(self, inputs, aux=None, stack=True):
+        self.value = []
+        input_branch, input_trunk = inputs
+        if aux is not None:
+            for inp_b, aux_ in zip(input_branch, aux):
+                x = (inp_b[None, :], input_trunk)
+                y=self.model(x)
+                res = self.operator(y[0][:, None], input_trunk, aux_[:, None])
+                self.value.append(res)
+        else:
+            for inp_b in input_branch:
+                x = (inp_b[None, :], input_trunk)
+                y=self.model(x)
+                res = self.operator(y[0][:, None], input_trunk)
                 self.value.append(res)
         if stack:
             self.value = torch.stack(self.value)
@@ -447,24 +506,28 @@ class PDELoss(torch.nn.modules.loss._Loss):
 
 
 def jacobian(y, x, create_graph=True):
-    dydx = torch.autograd.grad(y, x, torch.ones_like(y), create_graph=create_graph)[0]
+    dydx = torch.autograd.grad(y, x, torch.ones_like(y), create_graph=create_graph,retain_graph=create_graph)[0]
     return dydx
 
 
-def hessian(y, x, create_graph=True):
+def hessian(y, x, create_graph=False):
     dydx = jacobian(y, x, create_graph=True)  # (nb,nx)
     dydx_dx = []
     for i in range(dydx.shape[1]):
+        if i == dydx.shape[1] - 1:
+            cg = create_graph  # last one may no need to create graph
+        else:
+            cg = True
         dydxi = dydx[:, i : i + 1]
-        dydxidx = jacobian(dydxi, x, create_graph=create_graph)  # (nb,nx)
+        dydxidx = jacobian(dydxi, x, create_graph=cg)  # (nb,nx)
         dydx_dx.append(dydxidx)
 
     dydx2 = torch.stack(dydx_dx, dim=1)  # (nb,nx,nx)
     return dydx2
 
 
-def laplacian(y, x, create_graph=True):
+def laplacian(y, x, create_graph=False):
     dydx2 = hessian(y, x, create_graph=create_graph)
-    laplacian = torch.sum(torch.diagonal(dydx2, dim1=1, dim2=2), dim=1)
-    laplacian = laplacian.unsqueeze(1)
-    return laplacian
+    laplacian_v = torch.sum(torch.diagonal(dydx2, dim1=1, dim2=2), dim=1)
+    laplacian_v = laplacian_v.unsqueeze(1)
+    return laplacian_v

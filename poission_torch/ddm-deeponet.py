@@ -28,7 +28,7 @@ m = Nx * Ny
 
 
 # tf.keras.utils.set_random_seed(seed)
-fenics_data = scio.loadmat("../Adap_possion/TrainingData/poisson.mat")
+fenics_data = scio.loadmat("../Adap_possion/TrainingData/poisson_gauss_cov20k.mat")
 
 x_grid = fenics_data["x_grid"].astype(np.float32)  # shape (Ny, Nx)
 y_grid = fenics_data["y_grid"].astype(np.float32)
@@ -38,8 +38,10 @@ solutions_raw = fenics_data["solutions"].astype(np.float32)  # shape (N, Ny, Nx)
 solutions_raw = solutions_raw.reshape(-1, Nx * Ny)
 # shift_solution,scaler_solution = np.min(solutions_raw),np.max(solutions_raw)-np.min(solutions_raw)
 # shift_source,scaler_source = np.min(source_terms_raw),np.max(source_terms_raw)-np.min(source_terms_raw)
-shift_solution, scaler_solution = 0, 1
-shift_source, scaler_source = 0, 1
+# shift_solution, scaler_solution = 0, 1
+# shift_source, scaler_source = 0, 1
+shift_solution, scaler_solution = np.mean(solutions_raw), np.std(solutions_raw) 
+shift_source, scaler_source = np.mean(source_terms_raw), np.std(source_terms_raw)
 solutions = (solutions_raw - shift_solution) / scaler_solution
 source_terms = (source_terms_raw - shift_source) / scaler_source
 num_train = 5000
@@ -70,7 +72,7 @@ print("xy_train_testing.shape", xy_train_testing.shape)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 x_train = (torch.tensor(u0_train).to(device), torch.tensor(xy_train_testing).to(device))
 y_train = torch.tensor(s_train).to(device)
-
+aux=x_train[0]
 x_test = (
     torch.tensor(u0_testing).to(device),
     torch.tensor(xy_train_testing).to(device),
@@ -90,7 +92,7 @@ train_loader = DataLoader(
 test_loader = DataLoader(
     dataset_test,
     batch_size=dataset_test.__len__(),
-    collate_fn=dataset_train.custom_collate_fn,
+    collate_fn=dataset_test.custom_collate_fn,
 )
 
 # %%
@@ -100,7 +102,7 @@ model = DeepONet.DeepONetCartesianProd(
     [2, 100, 100, 100, 100, 100, 100],
     activation={"branch": nn.ReLU(), "trunk": nn.Tanh()},
 )
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
 model.compile(optimizer=optimizer, loss=mse)
 
 model.to(device)
@@ -111,7 +113,7 @@ checkpoint_callback = DeepONet.ModelCheckpoint(
 
 # %%
 
-h = model.fit(train_loader,test_loader, epochs=800, callbacks=checkpoint_callback)
+h = model.fit(train_loader,test_loader, epochs=20, callbacks=checkpoint_callback)
 # %%
 model.save_logs(filebase)
 model.load_weights(checkpoint_fname, device)
@@ -123,9 +125,9 @@ ax.legend()
 ax.set_yscale("log")
 
 # %%
-x_validate = x_test
-y_validate = s_testing_raw
-u0_validate = u0_testing_raw
+x_validate = x_train
+y_validate = s_train_raw
+u0_validate = u0_train_raw
 
 input_branch, input_trunk = x_validate[0], x_validate[1]
 input_trunk.requires_grad_(True)
@@ -191,19 +193,40 @@ for i, index in enumerate(min_median_max_index):
 
 
 # %%
-def LaplaceOperator2D(y, x, aux=None):
-    dydx2 = DeepONet.laplacian(y, x)
+
+
+
+def LaplaceOperator2D(y, x, aux=None,create_graph=False):
+    dydx2 = DeepONet.laplacian(y, x, create_graph=create_graph)
     return -0.01 * (dydx2) * scaler_solution
 
-
-# %%
-laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D)
+ # %%
+ %%timeit
+laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D,model)
 laplace_op_val = laplace_op(
-    (input_branch[min_median_max_index], input_trunk), model=model
+    (input_branch[min_median_max_index], input_trunk)
 )
 laplace_op_val = laplace_op_val.detach().cpu().numpy()
-
 # %%
+%%timeit
+laplace_op = DeepONet.EvaluateDeepONetPDEs_NoUseAnyMore(LaplaceOperator2D,model)
+laplace_op_val = laplace_op(
+    (input_branch[min_median_max_index], input_trunk)
+)
+laplace_op_val = laplace_op_val.detach().cpu().numpy()
+# %%
+def ResidualError(y, x, aux=None):
+    dydx2 = DeepONet.laplacian(y, x)
+    return -0.01 * (dydx2) * scaler_solution - aux
+
+
+res_op = DeepONet.EvaluateDeepONetPDEs(ResidualError, model=model)
+res_op_val = res_op(
+    (input_branch[min_median_max_index], input_trunk),aux=aux[min_median_max_index]
+)
+res_op_val = res_op_val.detach().cpu().numpy()
+# %%
+#laplace_op_val=res_op_val
 nr, nc = 3, 2
 i = 0
 fig = plt.figure(figsize=(8, 10))

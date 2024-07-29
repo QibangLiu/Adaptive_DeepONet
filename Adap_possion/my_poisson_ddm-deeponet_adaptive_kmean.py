@@ -6,7 +6,7 @@
 
 import sys
 import os
-import Adaptive_DeepONet.Adap_possion.DeepONet_torch as don
+import DeepONet_tf as don
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
@@ -20,14 +20,14 @@ from sklearn.cluster import KMeans
 # dde.backend.set_default_backend("tensorflow")
 # dde.config.set_default_float("float64")
 # In[]
-prefix_filebase = "/scratch/bblv/qibang/repository/Adap_data_driven_possion/saved_model"
+prefix_filebase = "./saved_model"
 method, str_dN, str_start, str_end = sys.argv[1:5]
 if method == 'PDF':
     str_k, str_c = sys.argv[5:-1]
 else:
     str_k, str_c = '0', "0"
 str_caseID=sys.argv[-1]
-
+##%run my_poisson_ddm-deeponet_adaptive_kmean.py 'PDF'  '400'  '0' '2' '1' '1' '0'
 # In[3]:
 
 Nx = 128
@@ -42,7 +42,7 @@ m = Nx * Ny
 tf.keras.backend.clear_session()
 # tf.keras.utils.set_random_seed(seed)
 fenics_data = scio.loadmat(
-    "/scratch/bblv/qibang/repository/Adap_data_driven_possion/TrainingData/poisson_gauss_cov20k.mat"
+    "./TrainingData/poisson_gauss_cov20k.mat"
 )
 
 x_grid = fenics_data["x_grid"].astype(np.float32)  # shape (Ny, Nx)
@@ -72,7 +72,7 @@ xy_train_testing = np.concatenate(
 )
 
 y_kmeans = np.genfromtxt(
-    '/scratch/bblv/qibang/repository/Adap_data_driven_possion/TrainingData/poisson_gauss_cov_kmean100.txt', dtype=int, delimiter=","
+    './TrainingData/poisson_gauss_cov_kmean100.txt', dtype=int, delimiter=","
 )
 
 # %%
@@ -237,7 +237,7 @@ for iter in range(iter_start, iter_end):
     )
     #model.set_weights(initial_weights)
     h = model.fit(
-        data.train_dataset, validation_data=data.test_dataset, epochs=800, verbose=2,
+        data.train_dataset, validation_data=data.test_dataset, epochs=80, verbose=2,
         callbacks=[model_checkpoint]
     )
     model.save_history(filebase)

@@ -123,7 +123,7 @@ for iter in range(iter_start, iter_end):
 
         LR = ErrorMeasure(
             (u0_train[potential_train_data_idx], xy_train_testing),
-            s_train[potential_train_data_idx],
+            u0_train[potential_train_data_idx],
         )
         probility = np.power(LR, k) / np.power(LR, k).mean() + c
         probility_normalized = probility / np.sum(probility)
