@@ -68,14 +68,15 @@ y_test = s_testing
 
 # %%
 
-data = don.TripleCartesianProd(x_train, y_train, x_test, y_test, batch_size=64)
+data_train = don.TripleCartesianProd(x_train, y_train, batch_size=64)
+data_test = don.TripleCartesianProd(x_test, y_test, shuffle=False)
 model = don.DeepONetCartesianProd(
     [m, 100, 100, 100, 100, 100, 100],
     [2, 100, 100, 100, 100, 100, 100],
     {"branch": "relu", "trunk": "tanh"},
 )
 initial_weights = model.get_weights()
-laplace_op = don.EvaluateDeepONetPDEs(model, don.LaplaceOperator2D)
+laplace_op = don.EvaluateDeepONetPDEs(model, don.laplacian)
 
 
 def ErrorMeasure(X, rhs):
@@ -99,23 +100,26 @@ model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
     save_best_only=True,
     mode="min",
 )
+model.load_weights(checkpoint_fname)
+h = model.load_history(filebase)
 h = model.fit(
-    data.train_dataset,
-    validation_data=data.test_dataset,
-    epochs=800,
+    data_train.dataset,
+    validation_data=data_test.dataset,
+    epochs=2,
     verbose=2,
     callbacks=[model_checkpoint],
 )
 model.save_history(filebase)
+
 model.load_weights(checkpoint_fname)
-y_pred = model.predict(data.test_x)
+y_pred = model.predict(data_test.X_data)
 y_pred_inverse = y_pred * scaler_solution + shift_solution
 error_test = np.linalg.norm(s_testing_raw - y_pred_inverse, axis=1) / np.linalg.norm(
     s_testing_raw, axis=1
 )
 stop_time = timeit.default_timer()
 print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")
-fig=plt.figure()
+fig = plt.figure()
 plt.hist(error_test)
 plt.xlabel("L2 relative error")
 plt.ylabel("frequency")
@@ -129,11 +133,11 @@ ax.set_yscale("log")
 
 # Plotting Results
 # %%
-u0_validate= u0_train_raw
-y_validate= s_train_raw
+u0_validate = u0_train_raw
+y_validate = s_train_raw
 x_validate = (u0_train, xy_train_testing)
-y_pred_out= model.predict(x_validate)
-y_pred= y_pred_out*scaler_solution+shift_solution
+y_pred_out = model.predict(x_validate)
+y_pred = y_pred_out * scaler_solution + shift_solution
 # %%
 error_s = []
 for i in range(len(y_validate)):
@@ -192,8 +196,7 @@ for i, index in enumerate(min_median_max_index):
 # %%
 laplace_op_val_ = laplace_op((x_validate[0][min_median_max_index], x_validate[1]))
 # %%
-laplace_op_val = -0.01 * laplace_op_val_*scaler_solution
-
+laplace_op_val = -0.01 * laplace_op_val_ * scaler_solution
 
 
 nr, nc = 3, 2
@@ -237,4 +240,94 @@ for i, index in enumerate(min_median_max_index):
 
 
 # %%
-ErrorMeasure((x_validate[0][min_median_max_index], x_validate[1]), u0_validate[min_median_max_index])
+ErrorMeasure(
+    (x_validate[0][min_median_max_index], x_validate[1]),
+    u0_validate[min_median_max_index],
+)
+
+
+# %%
+def laplacian_FD(u_pred, dx, dy):
+    """u shape=(batch_size,Ny*Nx)
+    return shape=(batch_size,Ny-2,Nx-2)"""
+    u = u_pred.reshape(-1, Ny, Nx)
+    du_dxx = (u[:, 1:-1, 2:] - 2 * u[:, 1:-1, 1:-1] + u[:, 1:-1, :-2]) / dx**2
+    du_dyy = (u[:, 2:, 1:-1] - 2 * u[:, 1:-1, 1:-1] + u[:, :-2, 1:-1]) / dy**2
+    lap = du_dxx + du_dyy
+    return lap
+
+
+dx = x_grid[0, 1] - x_grid[0, 0]
+dy = y_grid[1, 0] - y_grid[0, 0]
+laplace_FD_val = -0.01 * laplacian_FD(y_pred[min_median_max_index], dx, dy)
+laplace_FD_true= -0.01 * laplacian_FD(y_validate[min_median_max_index], dx, dy)
+# %%
+nr, nc = 3, 4
+i = 0
+fig = plt.figure(figsize=(16, 10))
+
+
+for i, index in enumerate(min_median_max_index):
+
+    vmin = np.min(u0_validate[index])
+    vmax = np.max(u0_validate[index])
+
+    ax = plt.subplot(nr, nc, nc * i + 1)
+    # py.figure(figsize = (14,7))
+    c1 = ax.contourf(
+        x_grid,
+        y_grid,
+        u0_validate[index].reshape(Ny, Nx),
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"Source Distrubution")
+    cbar = fig.colorbar(c1, ax=ax)
+    plt.tight_layout()
+
+    ax = plt.subplot(nr, nc, nc * i + 2)
+    # py.figure(figsize = (14,7))
+    c3 = ax.contourf(
+        x_grid[1:-1, 1:-1],
+        y_grid[1:-1, 1:-1],
+        laplace_FD_true[i],
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"Source Distrubution by FD of Reference Solution")
+    cbar = fig.colorbar(c3, ax=ax)
+    plt.tight_layout()
+
+    ax = plt.subplot(nr, nc, nc * i + 3)
+    # py.figure(figsize = (14,7))
+    c2 = ax.contourf(
+        x_grid,
+        y_grid,
+        laplace_op_val[i].reshape(Ny, Nx),
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"AD: $-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
+    cbar = fig.colorbar(c2, ax=ax)
+    plt.tight_layout()
+
+    ax = plt.subplot(nr, nc, nc * i + 4)
+    # py.figure(figsize = (14,7))
+    c3 = ax.contourf(
+        x_grid[1:-1, 1:-1],
+        y_grid[1:-1, 1:-1],
+        laplace_FD_val[i],
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"FD: $-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
+    cbar = fig.colorbar(c3, ax=ax)
+    plt.tight_layout()

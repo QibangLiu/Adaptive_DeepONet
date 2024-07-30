@@ -3,9 +3,12 @@ import tensorflow as tf
 from tensorflow import keras
 import os
 import json
-import deepxde as dde
-from deepxde import utils
+
+# import deepxde as dde
+# from deepxde import utils
 import numpy as np
+
+
 # %%
 class DeepONetCartesianProd(keras.Model):
     def __init__(self, layer_sizes_branch, layer_sizes_trunk, activation="tanh"):
@@ -142,7 +145,9 @@ class DeepONetCartesianProd(keras.Model):
                 self.fit_history = json.load(f)
         return self.fit_history
 
+
 # %%
+
 
 class TripleCartesianProd:
     """Dataset with each data point as a triple. The ordered pair of the first two
@@ -153,64 +158,67 @@ class TripleCartesianProd:
     learning.
 
     Args:
-        X_train: A tuple of two NumPy arrays. The first element has the shape (`N1`,
+        X_data: A tuple of two NumPy arrays. The first element has the shape (`N1`,
             `dim1`), and the second element has the shape (`N2`, `dim2`).
-        y_train: A NumPy array of shape (`N1`, `N2`).
+        y_data: A NumPy array of shape (`N1`, `N2`).
+        X_data[0] shape: (n_samples, n_features) n_features is or is not n_points
+        X_data[1] shape: (n_points, n_dim)
+        y_data shape: (n_samples, n_points)
+        Aux_train shape: (n_samples, n_points)
     """
 
-    def __init__(self, X_train, y_train, X_test, y_test,aux_train=None,aux_test=None, batch_size=None):
-        if len(X_train[0]) != y_train.shape[0] or len(X_train[1]) != y_train.shape[1]:
+    def __init__(
+        self, X_data, y_data=None, aux_data=None, batch_size=None, shuffle=True
+    ):
+        if len(X_data[0]) != y_data.shape[0] or len(X_data[1]) != y_data.shape[1]:
             raise ValueError(
                 "The training dataset does not have the format of Cartesian product."
             )
-        if len(X_test[0]) != y_test.shape[0] or len(X_test[1]) != y_test.shape[1]:
-            raise ValueError(
-                "The testing dataset does not have the format of Cartesian product."
-            )
-        self.train_x, self.train_y = X_train, y_train
-        self.test_x, self.test_y = X_test, y_test
-        self.aux_train = aux_train
-        self.aux_test = aux_test
-        self.batch_training_data(batch_size=batch_size)
-        self.batch_testing_data()
+        if aux_data is not None:
+            if (
+                len(X_data[0]) != aux_data.shape[0]
+                or len(X_data[1]) != aux_data.shape[1]
+            ):
+                raise ValueError(
+                    "The training dataset does not have the format of Cartesian product."
+                )
+        self.X_data, self.y_data = X_data, y_data
+        self.aux_data = aux_data
+        self.shuffle = shuffle
+        self.dataset = None
+        self.batch_training_data(batch_size=batch_size, shuffle=shuffle)
 
     def batch_training_data(self, batch_size=None, shuffle=True):
-        self.train_dataset = self.get_dataset_batches(
-            self.train_x, self.train_y, batch_size=batch_size, shuffle=shuffle
+        self.dataset = self.get_dataset_batches(
+            self.X_data,
+            self.y_data,
+            self.aux_data,
+            batch_size=batch_size,
+            shuffle=shuffle,
         )
 
-    def batch_testing_data(self, batch_size=None, shuffle=False):
-        self.test_dataset = self.get_dataset_batches(
-            self.test_x, self.test_y, batch_size=batch_size, shuffle=shuffle
-        )
-
-    def get_dataset_batches(self, x_data, y_train=None,aux=None, batch_size=None, shuffle=True):
+    def get_dataset_batches(
+        self, x_data, y_data=None, aux=None, batch_size=None, shuffle=True
+    ):
         if batch_size is None:
             bs = x_data[0].shape[0]
         else:
             bs = batch_size
         x_fun, x_loc = x_data
         if aux is None:
-            aux = tf.zeros((x_fun.shape[0],1))
-        if y_train is None:
-            y_train = tf.zeros((x_fun.shape[0], x_loc.shape[0]))
-        dataset = tf.data.Dataset.from_tensor_slices((x_fun, y_train,aux))
+            aux = tf.zeros((x_fun.shape[0], x_loc.shape[0]))
+        if y_data is None:
+            y_data = tf.zeros((x_fun.shape[0], x_loc.shape[0]))
+        dataset = tf.data.Dataset.from_tensor_slices((x_fun, y_data, aux))
         x_loc = tf.convert_to_tensor(x_loc)
-        dataset = dataset.map(lambda x, y,aux: ((x, x_loc,aux), y))
+        dataset = dataset.map(lambda x, y, aux: ((x, x_loc, aux), y))
         if shuffle:
             dataset = dataset.shuffle(buffer_size=x_fun.shape[0])
         dataset = dataset.batch(bs)
         dataset = dataset.map(
-            lambda x, y: ((x[0], tf.reshape(x[1][0], x_loc.shape),x[2]), y)
+            lambda x, y: ((x[0], tf.reshape(x[1][0], x_loc.shape), x[2]), y)
         )
         return dataset
-
-
-
-def LaplaceOperator2D(x, y):
-    dydx2 = dde.grad.hessian(y, x, i=0, j=0)
-    dydy2 = dde.grad.hessian(y, x, i=1, j=1)
-    return dydx2 + dydy2
 
 
 class EvaluateDeepONetPDEs:
@@ -219,9 +227,11 @@ class EvaluateDeepONetPDEs:
         model: DeepOnet.
         operator: Operator to apply to the outputs for derivative.
     """
+
     def __init__(self, model, operator):
         self.op = operator
         self.model = model
+
         @tf.function
         def op(inputs):
             y = self.model(inputs)
@@ -229,7 +239,8 @@ class EvaluateDeepONetPDEs:
             # QB: y[0] is the output corresponding
             # to the first input sample of the branch input,
             # each time we only consider one sample
-            return self.op(inputs[1], y[0][:, None])
+            return self.op(y[0][:, None], inputs[1])
+
         self.tf_op = op
 
     def __call__(self, inputs):
@@ -237,9 +248,56 @@ class EvaluateDeepONetPDEs:
         input_branch, input_trunck = inputs
         for inp in input_branch:
             x = (inp[None, :], input_trunck)
-            self.value.append(utils.to_numpy(self.tf_op(x)))
-        self.value = np.array(self.value)
+            self.value.append(self.tf_op(x))
+        self.value = tf.stack(self.value).numpy()
         return self.value
 
     def get_values(self):
         return self.value
+
+
+def jacobian(y, x):
+    dydx = tf.gradients(y, x)[0]
+    return dydx
+
+
+def hessian(y, x):
+    dydx = jacobian(y, x)  # (nb,dim_x)
+    dydx_dx = []
+    for i in range(dydx.shape[1]):
+        dydxi = dydx[:, i : i + 1]
+        dydxidx = jacobian(dydxi, x)  # (nb,nx)
+        dydx_dx.append(dydxidx)
+    dydx2 = tf.stack(dydx_dx, axis=1)  # (nb,nx,nx)
+    return dydx2
+
+
+def laplacian(y, x):
+    dydx2 = hessian(y, x)
+    laplacian_v = tf.reduce_sum(tf.linalg.diag_part(dydx2), axis=1)
+    return laplacian_v
+
+
+# %%
+def can_divide(a, b):
+    return b != 0 and a % b == 0
+
+
+def closest_divisor(num_samples, batch_size):
+    if can_divide(num_samples, batch_size):
+        return batch_size
+    # Searching for the closest divisor
+
+    distance = 1
+    bs = batch_size
+    while True:
+        # Check both sides of batch_size
+        if batch_size - distance > 0 and can_divide(num_samples, batch_size - distance):
+            bs = batch_size - distance
+            break
+        if can_divide(num_samples, batch_size + distance):
+            bs = batch_size + distance
+            break
+        distance += 1
+    print("Batch size is changed to ", bs)
+    return bs

@@ -69,9 +69,10 @@ xy_train_testing = np.concatenate(
 
 x_test = (u0_testing, xy_train_testing)
 y_test = s_testing
+data_test = don.TripleCartesianProd(x_test, y_test,shuffle=False)
 # %%
 
-data = None
+data_train = None
 model = don.DeepONetCartesianProd(
     [m, 100, 100, 100, 100, 100, 100],
     [2, 100, 100, 100, 100, 100, 100],
@@ -151,7 +152,7 @@ for iter in range(iter_start, iter_end):
     curr_u_train = u0_train[currTrainDataIDX]
     x_train = (curr_u_train, xy_train_testing)
     curr_y_train = s_train[currTrainDataIDX]
-    data = don.TripleCartesianProd(x_train, curr_y_train, x_test, y_test, batch_size=64)
+    data_train = don.TripleCartesianProd(x_train, curr_y_train,batch_size=64)
     optm = tf.keras.optimizers.Adam(learning_rate=5e-4)
     model.compile(optimizer=optm, loss="mse")
     checkpoint_fname = os.path.join(current_filebase, "model.ckpt")
@@ -166,15 +167,15 @@ for iter in range(iter_start, iter_end):
     )
     # model.set_weights(initial_weights)
     h = model.fit(
-        data.train_dataset,
-        validation_data=data.test_dataset,
+        data_train.dataset,
+        validation_data=data_test.dataset,
         epochs=800,
         verbose=2,
         callbacks=[model_checkpoint],
     )
     model.save_history(filebase)
     model.load_weights(checkpoint_fname)
-    y_pred = model.predict(data.test_x)
+    y_pred = model.predict(data_test.X_data)
     y_pred_inverse = y_pred * scaler_solution + shift_solution
     error_test = np.linalg.norm(s_testing_raw - y_pred_inverse, axis=1) / np.linalg.norm(
         s_testing_raw, axis=1
