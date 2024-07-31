@@ -6,20 +6,15 @@
 
 import sys
 import os
-import DeepONet_tf as don
+import DeepONet_tf as DeepONet
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import scipy.io as scio
-from deepxde import utils
-import deepxde as dde
-from deepxde.backend import tf
-#from myutils import  EvaluateDerivatives, LaplaceOperator2D
+import tensorflow as tf
 import timeit
 
-#dde.backend.set_default_backend("tensorflow")
-# dde.config.set_default_float("float64")
-# %run ddm-deeponet_adaptive_tf.py 5000 0 1 0 1 0
+# %run pi-deeponet_adaptive_tf.py 400 0 2 0 1 0
 # In[]
 
 prefix_filebase = "./saved_model"
@@ -28,58 +23,167 @@ str_k, str_c = sys.argv[4:-1]
 str_caseID = sys.argv[-1]
 
 # In[3]:
-
-Nx = 128
-Ny = 128
-m = Nx * Ny
 fenics_data = scio.loadmat("../Adap_possion/TrainingData/poisson_gauss_cov20k.mat")
+gap = 4
+x_grid_full = fenics_data["x_grid"].astype(np.float32)
+y_grid_full = fenics_data["y_grid"].astype(np.float32)
+x_idx = np.arange(0, x_grid_full.shape[1], gap)
+x_idx = np.append(x_idx, x_grid_full.shape[1] - 1)
+y_idx = x_idx[:, None]
+x_idx = x_idx[None, :]
 
-x_grid = fenics_data["x_grid"].astype(np.float32)  # shape (Ny, Nx)
-y_grid = fenics_data["y_grid"].astype(np.float32)
-source_terms_raw = fenics_data["source_terms"].astype(np.float32)  # shape (N, Ny, Nx)
-source_terms_raw = source_terms_raw.reshape(-1, Nx * Ny)
-solutions_raw = fenics_data["solutions"].astype(np.float32)  # shape (N, Ny, Nx)
-solutions_raw = solutions_raw.reshape(-1, Nx * Ny)
-shift_solution, scaler_solution = np.mean(solutions_raw), np.std(solutions_raw)
-shift_source, scaler_source = np.mean(source_terms_raw), np.std(source_terms_raw)
-# shift_solution, scaler_solution = np.min(solutions_raw), np.max(solutions_raw)-np.min(solutions_raw)
-# shift_source, scaler_source = np.min(source_terms_raw), np.max(source_terms_raw)-np.min(source_terms_raw)
-# shift_solution, scaler_solution = 0, (np.max(solutions_raw)-np.min(solutions_raw))*0.5
-# shift_source, scaler_source = 0, (np.max(source_terms_raw)-np.min(source_terms_raw))*0.5
-# shift_solution, scaler_solution = 0, 1
-# shift_source, scaler_source = 0, 1
+x_grid = x_grid_full[y_idx, x_idx]  # shape (Ny, Nx)
+y_grid = y_grid_full[y_idx, x_idx]  # shape (Ny, Nx)
+Ny, Nx = x_grid.shape
+source_terms_raw_full = fenics_data["source_terms"].astype(
+    np.float32
+)  # shape (N, Ny, Nx)
+source_terms_raw = source_terms_raw_full[:, y_idx, x_idx].reshape(-1, Nx * Ny)
+solutions_raw_full = fenics_data["solutions"].astype(np.float32)  # shape (N, Ny, Nx)
+solutions_raw = solutions_raw_full[:, y_idx, x_idx].reshape(-1, Nx * Ny)
+
+shift_solution, scaler_solution = np.mean(solutions_raw_full), np.std(
+    solutions_raw_full
+)
+shift_source, scaler_source = np.mean(source_terms_raw_full), np.std(
+    source_terms_raw_full
+)
+# shift_solution, scaler_solution = np.min(solutions_raw_full), np.max(solutions_raw_full)-np.min(solutions_raw_full)
+# shift_source, scaler_source = np.min(source_terms_raw_full), np.max(source_terms_raw_full)-np.min(source_terms_raw_full)
+# shift_solution, scaler_solution = (
+#     0.0,
+#     (np.max(solutions_raw_full) - np.min(solutions_raw_full)) * 0.5,
+# )
+# shift_source, scaler_source = (
+#     0.0,
+#     (np.max(source_terms_raw_full) - np.min(source_terms_raw_full)) * 0.5,
+# )
 solutions = (solutions_raw - shift_solution) / scaler_solution
 source_terms = (source_terms_raw - shift_source) / scaler_source
 
-u0_train = source_terms[:-1000]
-u0_testing = source_terms[-1000:]
-s_train = solutions[:-1000]
-s_testing = solutions[-1000:]
+num_train = -1000
+num_test = 1000
+u0_train = source_terms[:num_train]
+u0_testing = source_terms[-num_test:]
+s_train = solutions[:num_train]
+s_testing = solutions[-num_test:]
 
-u0_testing_raw = source_terms_raw[-1000:]
-u0_train_raw = source_terms_raw[:-1000]
-s_testing_raw = solutions_raw[-1000:]
-s_train_raw = solutions_raw[:-1000]
+u0_testing_raw = source_terms_raw[-num_test:]
+u0_train_raw = source_terms_raw[:num_train]
+s_testing_raw = solutions_raw[-num_test:]
+s_train_raw = solutions_raw[:num_train]
 
 xy_train_testing = np.concatenate(
     [x_grid.reshape(-1, 1), y_grid.reshape(-1, 1)], axis=1
 )
 
+boundary_mask = (
+    (xy_train_testing[:, 0] == x_grid.min())
+    | (xy_train_testing[:, 0] == x_grid.max())
+    | (xy_train_testing[:, 1] == y_grid.min())
+    | (xy_train_testing[:, 1] == y_grid.max())
+)
+interior_mask = ~boundary_mask
+boundary_indices = np.where(boundary_mask)[0]
+interior_indices = np.where(interior_mask)[0]
+
+print("u0_train.shape = ", u0_train.shape)
+print("type of u0_train = ", type(u0_train))
+print("u0_testing.shape = ", u0_testing.shape)
+print("s_train.shape = ", s_train.shape)
+print("s_testing.shape = ", s_testing.shape)
+print("xy_train_testing.shape", xy_train_testing.shape)
+
+
 # %%
 
 x_test = (u0_testing, xy_train_testing)
+aux_test = u0_testing_raw
 y_test = s_testing
-data_test = don.TripleCartesianProd(x_test, y_test,shuffle=False)
+
+
+batch_size_test = 50
+batch_size_test = DeepONet.closest_divisor(x_test[0].shape[0], batch_size_test)
+
+data_test = DeepONet.TripleCartesianProd(
+    x_test, y_test, aux_data=aux_test, batch_size=batch_size_test
+)
+
+# %%
+
+
+def equation(y, x, f=None):
+    dy_xx = DeepONet.laplacian(y, x)  # shape (num_points,)
+    return -dy_xx * 0.01 * scaler_solution - f
+
+
+class BCLoss(tf.keras.losses.Loss):
+    def __init__(self, indices, bc_v, name="bcloss"):
+        super().__init__(name=name)
+        self.indices = tf.constant(indices)
+        self.bc_v = tf.constant(bc_v)
+
+    def __call__(self, y_pred=None):
+        return tf.reduce_mean(
+            tf.square(tf.gather(y_pred, self.indices, axis=1) - self.bc_v)
+        )
+
+
+bc_loss = BCLoss(boundary_indices, 0.0)
+
+
+class PI_DeepONet(DeepONet.DeepONetCartesianProd):
+    def __init__(self, batch_size, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.loss_tracker = tf.keras.metrics.Mean(name="loss")
+        self.pde_loss_tracker = tf.keras.metrics.Mean(name="pde_loss")
+        self.bc_loss_tracker = tf.keras.metrics.Mean(name="bc_loss")
+        self.batch_size = batch_size
+
+    def train_step(self, data):
+        input, _ = data
+        x_branch, x_trunk = input[0], input[1]
+        aux = input[2]
+        with tf.GradientTape() as tape:
+            out = self((x_branch, x_trunk))
+            pde_losses = []
+            for i in range(self.batch_size):
+                res = equation(out[i][:, None], x_trunk, aux[i])
+                pde_losses.append(tf.reduce_mean(tf.square(res)))
+            pde_loss_ms = tf.reduce_mean(tf.stack(pde_losses))
+            bc_l = bc_loss(y_pred=out)
+            loss = pde_loss_ms + bc_l
+        # Compute gradients
+        gradients = tape.gradient(loss, self.trainable_variables)
+        # Apply gradients
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        self.loss_tracker.update_state(loss)
+        self.pde_loss_tracker.update_state(pde_loss_ms)
+        self.bc_loss_tracker.update_state(bc_l)
+        return {
+            "loss": self.loss_tracker.result(),
+            "pde_loss": self.pde_loss_tracker.result(),
+            "bc_loss": self.bc_loss_tracker.result(),
+        }
+
+
 # %%
 
 data_train = None
-model = don.DeepONetCartesianProd(
-    [m, 100, 100, 100, 100, 100, 100],
-    [2, 100, 100, 100, 100, 100, 100],
-    {"branch": "relu", "trunk": "tanh"},
+model = PI_DeepONet(50,
+    [
+        Ny * Nx,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+    ],
+    [2, 100, 100, 100, 100, 100, 100, 100],
+    {"branch": tf.keras.activations.swish, "trunk": "tanh"},
 )
-initial_weights = model.get_weights()
-laplace_op = don.EvaluateDeepONetPDEs(model, don.laplacian)
+laplace_op = DeepONet.EvaluateDeepONetPDEs(model, DeepONet.laplacian)
 
 
 def ErrorMeasure(X, rhs):
@@ -123,7 +227,7 @@ c = float(str_c)
 
 iter_start, iter_end = int(str_start), int(str_end)
 
-project_name = "adapt_k" + str_k + "c" + str_c + "dN" + str_dN + "case" + str_caseID
+project_name = "PI-adapt_k" + str_k + "c" + str_c + "dN" + str_dN + "case" + str_caseID
 filebase = os.path.join(prefix_filebase, project_name)
 start_time = timeit.default_timer()
 
@@ -150,14 +254,20 @@ for iter in range(iter_start, iter_end):
     curr_u_train = u0_train[currTrainDataIDX]
     x_train = (curr_u_train, xy_train_testing)
     curr_y_train = s_train[currTrainDataIDX]
-    data_train = don.TripleCartesianProd(x_train, curr_y_train, batch_size=64)
-    optm = tf.keras.optimizers.Adam(learning_rate=5e-4)
+    aux_train = u0_train_raw[currTrainDataIDX]
+    batch_size_train = 50
+    batch_size_train = DeepONet.closest_divisor(x_train[0].shape[0], batch_size_train)
+    model.batch_size = batch_size_train
+    data_train = DeepONet.TripleCartesianProd(
+        x_train, curr_y_train, aux_data=aux_train, batch_size=batch_size_train
+    )
+    optm = tf.keras.optimizers.Adam(learning_rate=1e-3)
     model.compile(optimizer=optm, loss="mse")
     checkpoint_fname = os.path.join(current_filebase, "model.ckpt")
     model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
         checkpoint_fname,
         save_weights_only=True,
-        monitor="val_loss",
+        monitor="loss",
         verbose=0,
         save_freq="epoch",
         save_best_only=True,
@@ -166,13 +276,13 @@ for iter in range(iter_start, iter_end):
     # model.set_weights(initial_weights)
     h = model.fit(
         data_train.dataset,
-        validation_data=data_test.dataset,
         epochs=800,
         verbose=2,
         callbacks=[model_checkpoint],
     )
     model.save_history(filebase)
     model.load_weights(checkpoint_fname)
+
     y_pred = model.predict(data_test.X_data)
     y_pred_inverse = y_pred * scaler_solution + shift_solution
     error_test = np.linalg.norm(
@@ -184,6 +294,18 @@ for iter in range(iter_start, iter_end):
         fmt="%.4e",
         delimiter=",",
     )
+
+    LR = ErrorMeasure(
+        (u0_testing, xy_train_testing),
+        aux_test,
+    )
+    np.savetxt(
+        os.path.join(current_filebase, "TestL2ResError.csv"),
+        LR,
+        fmt="%.4e",
+        delimiter=",",
+    )
+    
     stop_time = timeit.default_timer()
     print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")
     # fig=plt.figure()
@@ -192,8 +314,8 @@ for iter in range(iter_start, iter_end):
     # plt.ylabel("frequency")
 fig = plt.figure()
 ax = plt.subplot(1, 1, 1)
-ax.plot(h["loss"], label="loss")
-ax.plot(h["val_loss"], label="val_loss")
+ax.plot(h["bc_loss"], label="loss")
+ax.plot(h["pde_loss"], label="val_loss")
 ax.legend()
 ax.set_yscale("log")
 

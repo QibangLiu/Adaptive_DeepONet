@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16    # <- match to OMP_NUM_THREADS
 #SBATCH --partition=gpuA100x4      # <- or one of: gpuA100x4 gpuA40x4 gpuA100x8 gpuMI100x8-interactive
-#SBATCH --time=03:00:00      # hh:mm:ss for the jo
+#SBATCH --time=010:00:00      # hh:mm:ss for the jo
 #SBATCH --mem=200g #199?
 
 # # ### GPU options ###
@@ -15,11 +15,13 @@
 module load anaconda3_gpu/23.3.1
 export LD_LIBRARY_PATH=/sw/external/python/anaconda3-2023.03_cuda/lib:$LD_LIBRARY_PATH
 which python
-dN='400'
+dN='800'
 start='0'
-end='25'
-k='2'
-c='0'
-case='0'
+end='12'
+k='1'
+c='1'
+case='2'
 
-srun python3 ddm-deeponet_adaptive_tf.py  $dN  $start $end $k $c $case
+#srun python3 ddm-deeponet_adaptive_tf.py  $dN  $start $end $k $c $case
+#srun python3 pi-deeponet_2D_tf.py
+srun python3 pi-deeponet_adaptive_tf.py  $dN  $start $end $k $c $case

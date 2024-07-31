@@ -3,7 +3,7 @@ import tensorflow as tf
 from tensorflow import keras
 import os
 import json
-
+import timeit
 # import deepxde as dde
 # from deepxde import utils
 import numpy as np
@@ -11,15 +11,15 @@ import numpy as np
 
 # %%
 class DeepONetCartesianProd(keras.Model):
-    def __init__(self, layer_sizes_branch, layer_sizes_trunk, activation="tanh"):
+    def __init__(self, layer_sizes_branch, layer_sizes_trunk, activation="tanh",apply_activation_outlayer=True):
         super().__init__()
         if isinstance(activation, dict):
             self.activation_branch = activation["branch"]
             self.activation_trunk = activation["trunk"]
         else:
             self.activation_branch = self.activation_trunk = activation
-        self.trunk = self.build_net(layer_sizes_trunk, self.activation_trunk)
-        self.branch = self.build_net(layer_sizes_branch, self.activation_branch)
+        self.trunk = self.build_net(layer_sizes_trunk, self.activation_trunk, apply_activation_outlayer)
+        self.branch = self.build_net(layer_sizes_branch, self.activation_branch,apply_activation_outlayer)
         self.b = tf.Variable(tf.zeros(1))
         if self.trunk.output_shape != self.branch.output_shape:
             raise AssertionError(
@@ -27,7 +27,7 @@ class DeepONetCartesianProd(keras.Model):
             )
         self.fit_history = None
 
-    def build_net(self, layer_sizes, activation):
+    def build_net(self, layer_sizes, activation,apply_activation_outlayer=True):
         # User-defined network
         if callable(layer_sizes[0]):
             return layer_sizes[0]
@@ -35,7 +35,10 @@ class DeepONetCartesianProd(keras.Model):
         model = tf.keras.models.Sequential()
         model.add(tf.keras.layers.Input(shape=(layer_sizes[0],)))
         for size in layer_sizes[1:]:
-            model.add(tf.keras.layers.Dense(size, activation=activation))
+            if size == layer_sizes[-1] and not apply_activation_outlayer:
+                model.add(tf.keras.layers.Dense(size,activation='linear'))
+            else:
+                model.add(tf.keras.layers.Dense(size, activation=activation))
         return model
 
     def call(self, inputs):
@@ -74,6 +77,7 @@ class DeepONetCartesianProd(keras.Model):
         workers=1,
         use_multiprocessing=False,
     ):
+        start_time = timeit.default_timer()
         his = super().fit(
             x,
             y,
@@ -93,7 +97,6 @@ class DeepONetCartesianProd(keras.Model):
             validation_freq,
             max_queue_size,
             workers,
-            use_multiprocessing,
         )
         if self.fit_history is None:
             self.fit_history = his.history
@@ -101,6 +104,8 @@ class DeepONetCartesianProd(keras.Model):
             self.fit_history = {
                 key: self.fit_history[key] + (his.history)[key] for key in his.history
             }
+        stop_time = timeit.default_timer()
+        print("Training time: %.2f s "%(stop_time - start_time))
         return self.fit_history
 
     def predict(
@@ -292,7 +297,7 @@ def closest_divisor(num_samples, batch_size):
     bs = batch_size
     while True:
         # Check both sides of batch_size
-        if batch_size - distance > 0 and can_divide(num_samples, batch_size - distance):
+        if batch_size - distance > 1 and can_divide(num_samples, batch_size - distance):
             bs = batch_size - distance
             break
         if can_divide(num_samples, batch_size + distance):
