@@ -4,6 +4,7 @@ from tensorflow import keras
 import os
 import json
 import timeit
+
 # import deepxde as dde
 # from deepxde import utils
 import numpy as np
@@ -11,15 +12,25 @@ import numpy as np
 
 # %%
 class DeepONetCartesianProd(keras.Model):
-    def __init__(self, layer_sizes_branch, layer_sizes_trunk, activation="tanh",apply_activation_outlayer=True):
+    def __init__(
+        self,
+        layer_sizes_branch,
+        layer_sizes_trunk,
+        activation="tanh",
+        apply_activation_outlayer=True,
+    ):
         super().__init__()
         if isinstance(activation, dict):
             self.activation_branch = activation["branch"]
             self.activation_trunk = activation["trunk"]
         else:
             self.activation_branch = self.activation_trunk = activation
-        self.trunk = self.build_net(layer_sizes_trunk, self.activation_trunk, apply_activation_outlayer)
-        self.branch = self.build_net(layer_sizes_branch, self.activation_branch,apply_activation_outlayer)
+        self.trunk = self.build_net(
+            layer_sizes_trunk, self.activation_trunk, apply_activation_outlayer
+        )
+        self.branch = self.build_net(
+            layer_sizes_branch, self.activation_branch, apply_activation_outlayer
+        )
         self.b = tf.Variable(tf.zeros(1))
         if self.trunk.output_shape != self.branch.output_shape:
             raise AssertionError(
@@ -27,7 +38,7 @@ class DeepONetCartesianProd(keras.Model):
             )
         self.fit_history = None
 
-    def build_net(self, layer_sizes, activation,apply_activation_outlayer=True):
+    def build_net(self, layer_sizes, activation, apply_activation_outlayer=True):
         # User-defined network
         if callable(layer_sizes[0]):
             return layer_sizes[0]
@@ -36,7 +47,7 @@ class DeepONetCartesianProd(keras.Model):
         model.add(tf.keras.layers.Input(shape=(layer_sizes[0],)))
         for size in layer_sizes[1:]:
             if size == layer_sizes[-1] and not apply_activation_outlayer:
-                model.add(tf.keras.layers.Dense(size,activation='linear'))
+                model.add(tf.keras.layers.Dense(size, activation="linear"))
             else:
                 model.add(tf.keras.layers.Dense(size, activation=activation))
         return model
@@ -55,49 +66,9 @@ class DeepONetCartesianProd(keras.Model):
         y += self.b
         return y
 
-    def fit(
-        self,
-        x=None,
-        y=None,
-        batch_size=None,
-        epochs=1,
-        verbose="auto",
-        callbacks=None,
-        validation_split=0.0,
-        validation_data=None,
-        shuffle=True,
-        class_weight=None,
-        sample_weight=None,
-        initial_epoch=0,
-        steps_per_epoch=None,
-        validation_steps=None,
-        validation_batch_size=None,
-        validation_freq=1,
-        max_queue_size=10,
-        workers=1,
-        use_multiprocessing=False,
-    ):
+    def fit(self, *args, **kwargs):
         start_time = timeit.default_timer()
-        his = super().fit(
-            x,
-            y,
-            batch_size,
-            epochs,
-            verbose,
-            callbacks,
-            validation_split,
-            validation_data,
-            shuffle,
-            class_weight,
-            sample_weight,
-            initial_epoch,
-            steps_per_epoch,
-            validation_steps,
-            validation_batch_size,
-            validation_freq,
-            max_queue_size,
-            workers,
-        )
+        his = super().fit(*args, **kwargs)
         if self.fit_history is None:
             self.fit_history = his.history
         else:
@@ -105,31 +76,12 @@ class DeepONetCartesianProd(keras.Model):
                 key: self.fit_history[key] + (his.history)[key] for key in his.history
             }
         stop_time = timeit.default_timer()
-        print("Training time: %.2f s "%(stop_time - start_time))
+        print("Training time: %.2f s " % (stop_time - start_time))
         return self.fit_history
 
-    def predict(
-        self,
-        x,
-        batch_size=None,
-        verbose="auto",
-        steps=None,
-        callbacks=None,
-        max_queue_size=10,
-        workers=1,
-        use_multiprocessing=False,
-    ):
+    def predict(self, x, *args, **kwargs):
         if isinstance(x, tf.data.Dataset):
-            pred = super().predict(
-                x,
-                batch_size,
-                verbose,
-                steps,
-                callbacks,
-                max_queue_size,
-                workers,
-                use_multiprocessing,
-            )
+            pred = super().predict(x, *args, **kwargs)
         else:
             pred = self.call(x)
             pred = pred.numpy()
@@ -282,6 +234,12 @@ def laplacian(y, x):
     laplacian_v = tf.reduce_sum(tf.linalg.diag_part(dydx2), axis=1)
     return laplacian_v
 
+def laplacian_FD(u,dx,dy):
+    """u shape=(batch_size,Ny,Nx)
+    return shape=(batch_size,Ny-2,Nx-2)"""
+    du_dxx=(u[:,1:-1,2:]-2*u[:,1:-1,1:-1]+u[:,1:-1,:-2])/dx**2
+    du_dyy=(u[:,2:,1:-1]-2*u[:,1:-1,1:-1]+u[:,:-2,1:-1])/dy**2
+    return du_dxx+du_dyy
 
 # %%
 def can_divide(a, b):

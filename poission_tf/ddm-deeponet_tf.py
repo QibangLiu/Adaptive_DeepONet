@@ -102,16 +102,16 @@ model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
 )
 model.load_weights(checkpoint_fname)
 h = model.load_history(filebase)
-h = model.fit(
-    data_train.dataset,
-    validation_data=data_test.dataset,
-    epochs=2,
-    verbose=2,
-    callbacks=[model_checkpoint],
-)
-model.save_history(filebase)
+# h = model.fit(
+#     data_train.dataset,
+#     validation_data=data_test.dataset,
+#     epochs=1000,
+#     verbose=2,
+#     callbacks=[model_checkpoint],
+# )
+# model.save_history(filebase)
+# model.load_weights(checkpoint_fname)
 
-model.load_weights(checkpoint_fname)
 y_pred = model.predict(data_test.X_data)
 y_pred_inverse = y_pred * scaler_solution + shift_solution
 error_test = np.linalg.norm(s_testing_raw - y_pred_inverse, axis=1) / np.linalg.norm(
@@ -136,7 +136,8 @@ ax.set_yscale("log")
 u0_validate = u0_train_raw
 y_validate = s_train_raw
 x_validate = (u0_train, xy_train_testing)
-y_pred_out = model.predict(x_validate)
+with tf.device('/GPU:0'):
+    y_pred_out = model.predict(x_validate)
 y_pred = y_pred_out * scaler_solution + shift_solution
 # %%
 error_s = []
@@ -245,22 +246,52 @@ ErrorMeasure(
     u0_validate[min_median_max_index],
 )
 
-
+dx = x_grid[0, 1] - x_grid[0, 0]
+dy = y_grid[1, 0] - y_grid[0, 0]
+dx=(np.max(x_grid)-np.min(x_grid))/(Nx-1)/5
+dy=(np.max(y_grid)-np.min(y_grid))/(Ny-1)/5
+dx=dx.astype(np.float32)
+dy=dy.astype(np.float32)
 # %%
-def laplacian_FD(u_pred, dx, dy):
-    """u shape=(batch_size,Ny*Nx)
+def laplacian_FD(X_data, dx, dy,model):
+    """u shape=(batch_size,Ny,Nx)
+    x shape=(Ny*Nx,2)
     return shape=(batch_size,Ny-2,Nx-2)"""
-    u = u_pred.reshape(-1, Ny, Nx)
-    du_dxx = (u[:, 1:-1, 2:] - 2 * u[:, 1:-1, 1:-1] + u[:, 1:-1, :-2]) / dx**2
-    du_dyy = (u[:, 2:, 1:-1] - 2 * u[:, 1:-1, 1:-1] + u[:, :-2, 1:-1]) / dy**2
+    x=X_data[1] # shape=(Ny*Nx,2) coordinates
+    u0=X_data[0] # shape=(batch_size,Ny*Nx) source terms
+    x_plus_dx=np.concatenate( (x[:,0:1]+dx, x[:,1:2]),axis=1)
+    x_minus_dx=np.concatenate( (x[:,0:1]-dx, x[:,1:2]),axis=1)
+    x_plus_dy=np.concatenate( (x[:,0:1], x[:,1:2]+dy),axis=1)
+    x_minus_dy=np.concatenate( (x[:,0:1], x[:,1:2]-dy),axis=1)
+    u=model((u0,x))
+    u_plus_dx=model((u0,x_plus_dx))
+    u_minus_dx=model((u0,x_minus_dx))
+    u_plus_dy=model((u0,x_plus_dy))
+    u_minus_dy=model((u0,x_minus_dy))
+    du_dxx=(u_plus_dx-2*u+u_minus_dx)/dx**2
+    du_dyy=(u_plus_dy-2*u+u_minus_dy)/dy**2
     lap = du_dxx + du_dyy
     return lap
 
+X_data = (x_validate[0][min_median_max_index], x_validate[1])
+x=X_data[1] # shape=(Ny*Nx,2) coordinates
+u0=X_data[0] # shape=(batch_size,Ny*Nx) source terms
+x_plus_dx=np.concatenate( (x[:,0:1]+dx, x[:,1:2]),axis=1)
+u=model((u0,x)).numpy().reshape(-1,Ny,Nx)*scaler_solution+shift_solution
+u_plus_dx=model((u0,x_plus_dx)).numpy().reshape(-1,Ny,Nx)*scaler_solution+shift_solution
+# %%
+# def laplacian_FD(u,dx,dy):
+#     """u shape=(batch_size,Ny,Nx)
+#     return shape=(batch_size,Ny-2,Nx-2)"""
+#     du_dxx=(u[:,1:-1,2:]-2*u[:,1:-1,1:-1]+u[:,1:-1,:-2])/dx**2
+#     du_dyy=(u[:,2:,1:-1]-2*u[:,1:-1,1:-1]+u[:,:-2,1:-1])/dy**2
+#     return du_dxx+du_dyy
 
-dx = x_grid[0, 1] - x_grid[0, 0]
-dy = y_grid[1, 0] - y_grid[0, 0]
-laplace_FD_val = -0.01 * laplacian_FD(y_pred[min_median_max_index], dx, dy)
-laplace_FD_true= -0.01 * laplacian_FD(y_validate[min_median_max_index], dx, dy)
+laplace_FD_val=-0.01*laplacian_FD((x_validate[0][min_median_max_index], x_validate[1]), dx, dy,model)*scaler_solution
+
+#laplace_FD_val = -0.01 * laplacian_FD(y_pred[min_median_max_index].reshape(-1,Ny,Nx), dx, dy)
+#laplace_FD_true= -0.01 * don.laplacian_FD(y_validate[min_median_max_index].reshape(-1,Ny,Nx), dx, dy)
+laplace_FD_true=laplace_FD_val
 # %%
 nr, nc = 3, 4
 i = 0
@@ -287,20 +318,20 @@ for i, index in enumerate(min_median_max_index):
     cbar = fig.colorbar(c1, ax=ax)
     plt.tight_layout()
 
-    ax = plt.subplot(nr, nc, nc * i + 2)
-    # py.figure(figsize = (14,7))
-    c3 = ax.contourf(
-        x_grid[1:-1, 1:-1],
-        y_grid[1:-1, 1:-1],
-        laplace_FD_true[i],
-        20,
-        vmax=vmax,
-        vmin=vmin,
-        cmap="jet",
-    )
-    ax.set_title(r"Source Distrubution by FD of Reference Solution")
-    cbar = fig.colorbar(c3, ax=ax)
-    plt.tight_layout()
+    # ax = plt.subplot(nr, nc, nc * i + 2)
+    # # py.figure(figsize = (14,7))
+    # c3 = ax.contourf(
+    #     x_grid[1:-1, 1:-1],
+    #     y_grid[1:-1, 1:-1],
+    #     laplace_FD_true[i],
+    #     20,
+    #     vmax=vmax,
+    #     vmin=vmin,
+    #     cmap="jet",
+    # )
+    # ax.set_title(r"Source Distrubution by FD of Reference Solution")
+    # cbar = fig.colorbar(c3, ax=ax)
+    # plt.tight_layout()
 
     ax = plt.subplot(nr, nc, nc * i + 3)
     # py.figure(figsize = (14,7))
@@ -320,9 +351,12 @@ for i, index in enumerate(min_median_max_index):
     ax = plt.subplot(nr, nc, nc * i + 4)
     # py.figure(figsize = (14,7))
     c3 = ax.contourf(
-        x_grid[1:-1, 1:-1],
-        y_grid[1:-1, 1:-1],
-        laplace_FD_val[i],
+        x_grid,
+        y_grid,
+        laplace_FD_val[i].numpy().reshape(Ny, Nx),
+        # x_grid[1:-1, 1:-1],
+        # y_grid[1:-1, 1:-1],
+        # laplace_FD_val[i],
         20,
         vmax=vmax,
         vmin=vmin,
@@ -331,3 +365,18 @@ for i, index in enumerate(min_median_max_index):
     ax.set_title(r"FD: $-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
     cbar = fig.colorbar(c3, ax=ax)
     plt.tight_layout()
+
+
+# # %%
+# %%timeit
+# laplace_op_val_ = laplace_op((source_terms, x_train[1]))
+
+# %%
+# %%timeit
+# with tf.device('/CPU:0'):
+#     y_pred = model((source_terms, x_train[1]))
+# y_pred = tf.reshape(model((source_terms, x_train[1])),(-1, Ny, Nx))
+# laplace_val_FD = -0.01 * don.laplacian_FD(y_pred, dx, dy)
+
+
+# %%

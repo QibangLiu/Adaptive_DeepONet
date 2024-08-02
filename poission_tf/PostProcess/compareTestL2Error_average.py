@@ -29,7 +29,7 @@ def GetL2Error(filebase,filename="TestL2Error.csv"):
             mean_L2.append(np.mean(L2error))
             max_L2.append(np.max(L2error))
             std_L2.append(np.std(L2error))
-    return num_samples, np.array(mean_L2), np.array(max_L2), np.array(std_L2)
+    return np.array(num_samples).astype('float32'), np.array(mean_L2), np.array(max_L2), np.array(std_L2)
 
 
 def get_labels(paras):
@@ -47,25 +47,42 @@ def get_labels(paras):
 
 
 prefix_filebase = "../saved_model/"
-caseID = 0
+caseIDs=[0,1,2]
 paras = [("0", "1", "400"), ("1", "1", "400"), ("2", "1", "400"), ("2", "0", "400")]
 #paras = [("0", "1", "800"), ("1", "1", "800")]
 labels = get_labels(paras)
 filebases = []
 for para in paras:
-    project_name = ("FD_"+
-        "adapt_k" + para[0] + "c" + para[1] + "dN" + para[2] + "case"+str(caseID)
-    )
-    filebases.append(os.path.join(prefix_filebase, project_name))
-
+    filebase_case = []
+    for caseID in caseIDs:
+        project_name = (#"PI-"+
+            "adapt_k" + para[0] + "c" + para[1] + "dN" + para[2] + "case"+str(caseID)
+        )
+        filebase_case.append(os.path.join(prefix_filebase, project_name))
+    filebases.append(filebase_case)
 
 numS, means, maxs, stds = [], [], [], []
-for filebase in filebases:
-    numS1, mean1, max1, std1 = GetL2Error(filebase)
-    numS.append(numS1)
-    means.append(mean1)
-    maxs.append(max1)
-    stds.append(std1)
+for filebase_case in filebases:
+    numS_case, means_case, maxs_case, stds_case = [], [], [], []
+    for filebase in filebase_case:
+        numS1, mean1, max1, std1 = GetL2Error(filebase)
+        numS_case.append(numS1)
+        means_case.append(mean1)
+        maxs_case.append(max1)
+        stds_case.append(std1)
+    len_case =max([len(numS1) for numS1 in numS_case])
+    for i in range(len(numS_case)):
+            numS_case[i]=np.pad(numS_case[i],(0,len_case-len(numS_case[i])),constant_values=np.nan)
+            means_case[i]=np.pad(means_case[i],(0,len_case-len(means_case[i])),constant_values=np.nan)
+            maxs_case[i]=np.pad(maxs_case[i],(0,len_case-len(maxs_case[i])),constant_values=np.nan)
+            stds_case[i]=np.pad(stds_case[i],(0,len_case-len(stds_case[i])),constant_values=np.nan)
+    numS_case=np.nanmean(np.array(numS_case),axis=0).astype(int)
+    means_case=np.nanmean(np.array(means_case),axis=0)
+    maxs_case=np.nanmean(np.array(maxs_case),axis=0)
+    stds_case=np.nanmean(np.array(stds_case),axis=0)
+    numS.append(numS_case)
+    means.append(means_case)
+    maxs.append(maxs_case)
 # %%
 fig = plt.figure(figsize=(12, 4))
 ax = plt.subplot(1, 2, 1)
@@ -97,7 +114,6 @@ def load_history(filebase):
     return fit_history
 
 
-h = load_history(filebases[-2])
 # %%
 # fig = plt.figure()
 # ax = plt.subplot(1, 1, 1)
@@ -106,19 +122,4 @@ h = load_history(filebases[-2])
 # ax.plot(h["val_loss"][sid:sid+1600], label="val_loss")
 # ax.legend()
 # ax.set_yscale("log")
-# %%
-fenics_data = scio.loadmat(
-    "../../Adap_possion/TrainingData/poisson_gauss_cov.mat"
-)
-
-x_grid = fenics_data["x_grid"].astype(np.float32)  # shape (Ny, Nx)
-y_grid = fenics_data["y_grid"].astype(np.float32)
-source_terms_raw = fenics_data["source_terms"].astype(np.float32)
-# %%
-id = np.random.randint(0, source_terms_raw.shape[0])
-fig = plt.figure()
-ax = plt.subplot(1, 1, 1)
-c = ax.contourf(x_grid, y_grid, source_terms_raw[id], 200)
-cbar = fig.colorbar(c, ax=ax)
-ax.axis("equal")
 # %%

@@ -14,15 +14,17 @@ import scipy.io as scio
 from deepxde import utils
 import deepxde as dde
 from deepxde.backend import tf
-#from myutils import  EvaluateDerivatives, LaplaceOperator2D
+
+# from myutils import  EvaluateDerivatives, LaplaceOperator2D
 import timeit
 
-#dde.backend.set_default_backend("tensorflow")
+# dde.backend.set_default_backend("tensorflow")
 # dde.config.set_default_float("float64")
 # %run ddm-deeponet_adaptive_tf.py 5000 0 1 0 1 0
 # In[]
 
 prefix_filebase = "./saved_model"
+diff_method = "FD"
 str_dN, str_start, str_end = sys.argv[1:4]
 str_k, str_c = sys.argv[4:-1]
 str_caseID = sys.argv[-1]
@@ -69,7 +71,9 @@ xy_train_testing = np.concatenate(
 
 x_test = (u0_testing, xy_train_testing)
 y_test = s_testing
-data_test = don.TripleCartesianProd(x_test, y_test,shuffle=False)
+data_test = don.TripleCartesianProd(x_test, y_test, shuffle=False)
+dx = x_grid[0, 1] - x_grid[0, 0]
+dy = y_grid[1, 0] - y_grid[0, 0]
 # %%
 
 data_train = None
@@ -82,10 +86,21 @@ initial_weights = model.get_weights()
 laplace_op = don.EvaluateDeepONetPDEs(model, don.laplacian)
 
 
-def ErrorMeasure(X, rhs):
-    lhs = -0.01 * (laplace_op(X)) * scaler_solution
-    lhs = np.squeeze(lhs)
-    return np.linalg.norm(lhs - rhs, axis=1) / np.linalg.norm(rhs, axis=1)
+def ErrorMeasure(X, rhs, method="AD"):
+    if method == "AD":
+        lhs = -0.01 * (laplace_op(X)) * scaler_solution
+        lhs = np.squeeze(lhs)
+        return np.linalg.norm(lhs - rhs, axis=1) / np.linalg.norm(rhs, axis=1)
+    elif method == "FD":
+        with tf.device("/CPU:0"):
+            y = model.predict(X)
+            y = y.reshape(-1, Ny, Nx) * scaler_solution + shift_solution
+            lsh = don.laplacian_FD(y, dx, dy).reshape(-1, (Ny - 2) * (Nx - 2))
+            rhs__ = rhs.reshape(-1, Ny, Nx)[:, 1:-1, 1:-1]
+            rsh__ = rhs__.reshape(-1, (Ny - 2) * (Nx - 2))
+            return np.linalg.norm(lsh - rsh__, axis=1) / np.linalg.norm(rsh__, axis=1)
+    else:
+        raise ValueError("method should be AD or FD")
 
 
 def sampling(iter, dN, pre_filebase):
@@ -102,7 +117,7 @@ def sampling(iter, dN, pre_filebase):
 
         LR = ErrorMeasure(
             (u0_train[potential_train_data_idx], xy_train_testing),
-            u0_train_raw[potential_train_data_idx],
+            u0_train_raw[potential_train_data_idx],method=diff_method
         )
         probility = np.power(LR, k) / np.power(LR, k).mean() + c
         probility_normalized = probility / np.sum(probility)
@@ -123,7 +138,9 @@ c = float(str_c)
 
 iter_start, iter_end = int(str_start), int(str_end)
 
-project_name = "adapt_k" + str_k + "c" + str_c + "dN" + str_dN + "case" + str_caseID
+project_name = (
+    diff_method + "_adapt_k" + str_k + "c" + str_c + "dN" + str_dN + "case" + str_caseID
+)
 filebase = os.path.join(prefix_filebase, project_name)
 start_time = timeit.default_timer()
 
