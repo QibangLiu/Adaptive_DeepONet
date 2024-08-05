@@ -13,6 +13,7 @@ import tensorflow as tf
 # dde.config.set_default_float("float64")
 # In[]
 filebase = "./saved_model/tf_test_PI_2D"
+filebase="/scratch/bblv/qibang/repository/Adaptive_DeepONet/poission_tf/saved_model/PI-adapt_k1c1dN800case2/iter6"
 os.makedirs(filebase, exist_ok=True)
 
 # In[3]:
@@ -191,10 +192,10 @@ model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
 
 
 # %%
-# model.load_weights(checkpoint_fname)
-# h=model.load_history(filebase)
-h = model.fit(dataset_train.dataset, epochs=10, verbose=2, callbacks=model_checkpoint)
-model.save_history(filebase)
+model.load_weights(checkpoint_fname)
+h=model.load_history(filebase)
+# h = model.fit(dataset_train.dataset, epochs=10, verbose=2, callbacks=model_checkpoint)
+# model.save_history(filebase)
 # %%
 fig = plt.figure()
 ax = plt.subplot(1, 1, 1)

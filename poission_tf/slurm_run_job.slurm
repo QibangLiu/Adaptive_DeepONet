@@ -19,8 +19,8 @@ dN='400'
 start='0'
 end='25'
 k='2'
-c='0'
-case='0'
+c='1'
+case='1'
 
 srun python3 ddm-deeponet_adaptive_tf.py  $dN  $start $end $k $c $case
 #srun python3 pi-deeponet_2D_tf.py

@@ -113,10 +113,12 @@ checkpoint_callback = DeepONet.ModelCheckpoint(
 
 # %%
 
-h = model.fit(train_loader,test_loader, epochs=20, callbacks=checkpoint_callback)
+#h = model.fit(train_loader,test_loader, epochs=20, callbacks=checkpoint_callback)
+# model.save_logs(filebase)
 # %%
-model.save_logs(filebase)
+
 model.load_weights(checkpoint_fname, device)
+h= model.load_logs(filebase)
 fig = plt.figure()
 ax = plt.subplot(1, 1, 1)
 ax.plot(h["loss"], label="loss")

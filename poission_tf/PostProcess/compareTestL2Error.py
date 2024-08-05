@@ -47,13 +47,13 @@ def get_labels(paras):
 
 
 prefix_filebase = "../saved_model/"
-caseID = 0
+caseID = 2
 paras = [("0", "1", "400"), ("1", "1", "400"), ("2", "1", "400"), ("2", "0", "400")]
-#paras = [("0", "1", "800"), ("1", "1", "800")]
+paras = [("0", "1", "800"), ("1", "1", "800")]
 labels = get_labels(paras)
 filebases = []
 for para in paras:
-    project_name = ("FD_"+
+    project_name = ("PI-"+
         "adapt_k" + para[0] + "c" + para[1] + "dN" + para[2] + "case"+str(caseID)
     )
     filebases.append(os.path.join(prefix_filebase, project_name))
