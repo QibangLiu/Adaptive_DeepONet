@@ -12,7 +12,7 @@ from torch.utils.data import Dataset, DataLoader
 import DeepONet
 
 # In[]
-filebase = "./saved_model/pytorch_test_ddm2D"
+filebase = "./saved_model/pytorch_ddm2D"
 os.makedirs(filebase, exist_ok=True)
 
 # In[3]:
@@ -44,15 +44,15 @@ shift_solution, scaler_solution = np.mean(solutions_raw), np.std(solutions_raw)
 shift_source, scaler_source = np.mean(source_terms_raw), np.std(source_terms_raw)
 solutions = (solutions_raw - shift_solution) / scaler_solution
 source_terms = (source_terms_raw - shift_source) / scaler_source
-num_train = 5000
+num_train = 6000
 u0_train = source_terms[:num_train]
-u0_testing = source_terms[num_train:6000]
+u0_testing = source_terms[-1000:]
 s_train = solutions[:num_train]
-s_testing = solutions[num_train:6000]
+s_testing = solutions[-1000:]
 
-u0_testing_raw = source_terms_raw[num_train:6000]
+u0_testing_raw = source_terms_raw[-1000]
 u0_train_raw = source_terms_raw[:num_train]
-s_testing_raw = solutions_raw[num_train:6000]
+s_testing_raw = solutions_raw[-1000:1000]
 s_train_raw = solutions_raw[:num_train]
 
 xy_train_testing = np.concatenate(
@@ -113,7 +113,7 @@ checkpoint_callback = DeepONet.ModelCheckpoint(
 
 # %%
 
-#h = model.fit(train_loader,test_loader, epochs=20, callbacks=checkpoint_callback)
+# h = model.fit(train_loader,test_loader, epochs=1000, callbacks=checkpoint_callback)
 # model.save_logs(filebase)
 # %%
 
@@ -198,24 +198,9 @@ for i, index in enumerate(min_median_max_index):
 
 
 
-def LaplaceOperator2D(y, x, aux=None,create_graph=False):
-    dydx2 = DeepONet.laplacian(y, x, create_graph=create_graph)
-    return -0.01 * (dydx2) * scaler_solution
 
- # %%
- %%timeit
-laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D,model)
-laplace_op_val = laplace_op(
-    (input_branch[min_median_max_index], input_trunk)
-)
-laplace_op_val = laplace_op_val.detach().cpu().numpy()
-# %%
-%%timeit
-laplace_op = DeepONet.EvaluateDeepONetPDEs_NoUseAnyMore(LaplaceOperator2D,model)
-laplace_op_val = laplace_op(
-    (input_branch[min_median_max_index], input_trunk)
-)
-laplace_op_val = laplace_op_val.detach().cpu().numpy()
+
+ 
 # %%
 def ResidualError(y, x, aux=None):
     dydx2 = DeepONet.laplacian(y, x)
@@ -226,7 +211,7 @@ res_op = DeepONet.EvaluateDeepONetPDEs(ResidualError, model=model)
 res_op_val = res_op(
     (input_branch[min_median_max_index], input_trunk),aux=aux[min_median_max_index]
 )
-res_op_val = res_op_val.detach().cpu().numpy()
+laplace_op_val = res_op_val.detach().cpu().numpy()
 # %%
 #laplace_op_val=res_op_val
 nr, nc = 3, 2
@@ -266,6 +251,106 @@ for i, index in enumerate(min_median_max_index):
     ax.set_title(r"$-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
     cbar = fig.colorbar(c2, ax=ax)
     plt.tight_layout()
+
+
+
+
+# %%
+def LaplaceOperator2D(y, x, aux=None):
+    dydx2 = DeepONet.laplacian(y, x)
+    return -0.01 * (dydx2) * scaler_solution
+# %%
+laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D,model)
+laplace_op_val = laplace_op(
+    (input_branch[min_median_max_index], input_trunk)
+)
+laplace_op_val = laplace_op_val.detach().cpu().numpy()
+
+# %%
+
+# %%
+
+dx = x_grid[0, 1] - x_grid[0, 0]
+dy = y_grid[1, 0] - y_grid[0, 0]
+out=model((input_branch[min_median_max_index], input_trunk))
+laplace_FD_val=-0.01*DeepONet.laplacian_FD(out.reshape(-1,Ny,Nx),dx,dy)*scaler_solution
+laplace_FD_val=laplace_FD_val.detach().cpu().numpy()
+out_ref=y_validate[min_median_max_index]
+laplace_FD_true=-0.01*DeepONet.laplacian_FD(out_ref.reshape(-1,Ny,Nx),dx,dy)
+
+# %%
+nr, nc = 3, 4
+i = 0
+fig = plt.figure(figsize=(16, 10))
+
+
+for i, index in enumerate(min_median_max_index):
+    vmin = np.min(u0_validate[index])
+    vmax = np.max(u0_validate[index])
+
+    ax = plt.subplot(nr, nc, nc * i + 1)
+    # py.figure(figsize = (14,7))
+    c1 = ax.contourf(
+        x_grid,
+        y_grid,
+        u0_validate[index].reshape(Ny, Nx),
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"Source Distrubution")
+    cbar = fig.colorbar(c1, ax=ax)
+    plt.tight_layout()
+
+    ax = plt.subplot(nr, nc, nc * i + 2)
+    # py.figure(figsize = (14,7))
+    c3 = ax.contourf(
+        x_grid[1:-1, 1:-1],
+        y_grid[1:-1, 1:-1],
+        laplace_FD_true[i],
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"Source Distrubution by FD of Reference Solution")
+    cbar = fig.colorbar(c3, ax=ax)
+    plt.tight_layout()
+
+    ax = plt.subplot(nr, nc, nc * i + 3)
+    # py.figure(figsize = (14,7))
+    c2 = ax.contourf(
+        x_grid,
+        y_grid,
+        np.abs(laplace_op_val[i].reshape(Ny, Nx)-u0_validate[index].reshape(Ny,Nx)),
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"AD: $-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
+    cbar = fig.colorbar(c2, ax=ax)
+    plt.tight_layout()
+
+    ax = plt.subplot(nr, nc, nc * i + 4)
+    # py.figure(figsize = (14,7))
+    c3 = ax.contourf(
+        x_grid[1:-1, 1:-1],
+        y_grid[1:-1, 1:-1],
+        laplace_FD_val[i],
+        # x_grid[1:-1, 1:-1],
+        # y_grid[1:-1, 1:-1],
+        # laplace_FD_val[i],
+        20,
+        vmax=vmax,
+        vmin=vmin,
+        cmap="jet",
+    )
+    ax.set_title(r"FD: $-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
+    cbar = fig.colorbar(c3, ax=ax)
+    plt.tight_layout()
+
 
 
 # %%

@@ -19,12 +19,12 @@ from torch.utils.data import Dataset, DataLoader
 # In[]
 # %run ddm-deeponet_adaptive.py 2000 0 2 1 1 1
 prefix_filebase = "./saved_model"
-# str_dN, str_start, str_end = sys.argv[1:4]
-# str_k, str_c = sys.argv[4:-1]
-# str_caseID = sys.argv[-1]
-str_dN, str_start, str_end = '200', '0', '2'
-str_k, str_c = '1', '1'
-str_caseID = '1'
+str_dN, str_start, str_end = sys.argv[1:4]
+str_k, str_c = sys.argv[4:-1]
+str_caseID = sys.argv[-1]
+# str_dN, str_start, str_end = '2000', '0', '2'
+# str_k, str_c = '1', '1'
+# str_caseID = '1'
 # In[3]:
 
 Nx = 128
@@ -89,8 +89,8 @@ model.to(device)
 
 
 # %%
-def ResidualError(y, x, aux=None,create_graph=False):
-    dydx2 = DeepONet.laplacian(y, x,create_graph=create_graph)
+def ResidualError(y, x, aux=None):
+    dydx2 = DeepONet.laplacian(y, x,)
     return -0.01 * (dydx2) * scaler_solution - aux
 
 
@@ -282,9 +282,9 @@ def LaplaceOperator2D(y, x, aux=None):
 
 
 # %%
-laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D)
+laplace_op = DeepONet.EvaluateDeepONetPDEs(LaplaceOperator2D,model=model)
 laplace_op_val = laplace_op(
-    (x_validate[0][min_median_max_index], x_validate[1]), model=model
+    (x_validate[0][min_median_max_index], x_validate[1])
 )
 laplace_op_val = laplace_op_val.detach().cpu().numpy()
 

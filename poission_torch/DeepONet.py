@@ -9,6 +9,7 @@ import timeit
 import numpy as np
 from torch.nn.modules.loss import _Loss
 import inspect
+from tqdm import tqdm
 
 # %%
 
@@ -389,91 +390,40 @@ class TripleCartesianProd(Dataset):
 # %%
 
 
-# %%
 class EvaluateDeepONetPDEs:
     """Generates the derivative of the outputs with respect to the trunck inputs.
     Args:
         operator: Operator to apply to the outputs for derivative.
     """
 
-    def __init__(self, operator,model=None):
-        self.operator = operator
-        self.model=model
-
-    def __call__(self, inputs,  aux=None, create_graph=False, stack=True):
-        self.value = []
-        input_branch, input_trunk = inputs
-        out = self.model((input_branch, input_trunk))
-        if aux is not None:
-            for i, (aux_, y) in enumerate(zip(aux, out)):
-                if i == len(input_branch) - 1:
-                    cg = create_graph
-                else:
-                    cg = True
-                res = self.operator(
-                    y[:, None], input_trunk, aux_[:, None], create_graph=cg
-                )
-                self.value.append(res)
-        else:
-            for i, y in enumerate(out):
-                if i == len(input_branch) - 1:
-                    cg = create_graph
-                else:
-                    cg = True
-                res = self.operator(y[:, None], input_trunk, create_graph=cg)
-                self.value.append(res)
-        if stack:
-            self.value = torch.stack(self.value)
-        return self.value
-
-    def get_values(self):
-        return self.value
-
-
-class EvaluateDeepONetPDEs_NoUseAnyMore:
-    """
-     slow and memory consuming
-    Generates the derivative of the outputs with respect to the trunck inputs.
-    Args:
-        model: DeepOnet.
-        operator: Operator to apply to the outputs for derivative.
-    """
-
-    def __init__(self, operator, model):
+    def __init__(self, operator, model=None):
         self.operator = operator
         self.model = model
 
-        def op(inputs, aux=None):
-            y = self.model(inputs)
-            # QB: inputs[1] is the input of the trunck
-            # QB: y[0] is the output corresponding
-            # to the Only input sample of the branch input,
-            # each time we only consider one sample
-            return self.op(y[0][:, None], inputs[1], aux=aux)
-
-        self.torch_op = op
-
-    def __call__(self, inputs, aux=None, stack=True):
+    def __call__(self, inputs, aux=None, chunk_size=100):
         self.value = []
-        input_branch, input_trunk = inputs
-        if aux is not None:
-            for inp_b, aux_ in zip(input_branch, aux):
-                x = (inp_b[None, :], input_trunk)
-                y=self.model(x)
-                res = self.operator(y[0][:, None], input_trunk, aux_[:, None])
-                self.value.append(res)
-        else:
-            for inp_b in input_branch:
-                x = (inp_b[None, :], input_trunk)
-                y=self.model(x)
-                res = self.operator(y[0][:, None], input_trunk)
-                self.value.append(res)
-        if stack:
-            self.value = torch.stack(self.value)
+        # chunk_size = 10 works faster
+        input_trunk = inputs[1]
+        input_trunk.requires_grad_(True)
+        for j in tqdm(range(0, len(inputs[0]), chunk_size)):
+            input_branch = inputs[0][j : j + chunk_size]
+            out = self.model((input_branch, input_trunk))
+            if aux is None:
+                for y in out:
+                    res = self.operator(y[:, None], input_trunk)
+                    self.value.append(res.detach())
+            else:
+                for (aux_, y) in zip(aux[j : j + chunk_size], out):
+                    res = self.operator(y[:, None], input_trunk, aux_[:, None])
+                    self.value.append(res.detach())
+        self.value = torch.stack(self.value)
         return self.value
 
     def get_values(self):
         return self.value
+
+
+# %%
 
 
 class PDELoss(torch.nn.modules.loss._Loss):
@@ -506,28 +456,32 @@ class PDELoss(torch.nn.modules.loss._Loss):
 
 
 def jacobian(y, x, create_graph=True):
-    dydx = torch.autograd.grad(y, x, torch.ones_like(y), create_graph=create_graph,retain_graph=create_graph)[0]
+    dydx = torch.autograd.grad(y, x, torch.ones_like(y), create_graph=create_graph)[0]
     return dydx
 
 
-def hessian(y, x, create_graph=False):
+def hessian(y, x):
     dydx = jacobian(y, x, create_graph=True)  # (nb,nx)
     dydx_dx = []
     for i in range(dydx.shape[1]):
-        if i == dydx.shape[1] - 1:
-            cg = create_graph  # last one may no need to create graph
-        else:
-            cg = True
         dydxi = dydx[:, i : i + 1]
-        dydxidx = jacobian(dydxi, x, create_graph=cg)  # (nb,nx)
+        dydxidx = jacobian(dydxi, x, create_graph=True)  # (nb,nx)
         dydx_dx.append(dydxidx)
 
     dydx2 = torch.stack(dydx_dx, dim=1)  # (nb,nx,nx)
     return dydx2
 
 
-def laplacian(y, x, create_graph=False):
-    dydx2 = hessian(y, x, create_graph=create_graph)
+def laplacian(y, x):
+    dydx2 = hessian(y, x)
     laplacian_v = torch.sum(torch.diagonal(dydx2, dim1=1, dim2=2), dim=1)
     laplacian_v = laplacian_v.unsqueeze(1)
     return laplacian_v
+
+
+def laplacian_FD(u,dx,dy):
+    """u shape=(batch_size,Ny,Nx)
+    return shape=(batch_size,Ny-2,Nx-2)"""
+    du_dxx=(u[:,1:-1,2:]-2*u[:,1:-1,1:-1]+u[:,1:-1,:-2])/dx**2
+    du_dyy=(u[:,2:,1:-1]-2*u[:,1:-1,1:-1]+u[:,:-2,1:-1])/dy**2
+    return du_dxx+du_dyy
