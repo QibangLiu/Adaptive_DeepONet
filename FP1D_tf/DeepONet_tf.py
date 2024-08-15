@@ -80,10 +80,10 @@ class DeepONetCartesianProd(keras.Model):
             shift += self.shift_size
         ys=tf.stack(ys, axis=-1)
         ys=tf.squeeze(ys)
-        if mask is None:
-            return ys
-        else:
-            return ys*mask
+        # if mask is None:
+        #     return ys
+        # else:
+        return ys*mask
     
 
     

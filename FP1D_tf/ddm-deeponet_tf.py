@@ -123,19 +123,13 @@ data_train = DeepONet.TripleCartesianProd(x_train, y_train,aux_data=mask_train, 
 
 
 # %%
+numNode=200
 model = DeepONet.DeepONetCartesianProd(
-    [2, 100, 100,100,100,100,100],
-    [2, 100,100,100,100,100,100],
+    [2, numNode, numNode,numNode,numNode,numNode,2*numNode],
+    [2, numNode, numNode,numNode,numNode,numNode,2*numNode],
     {"branch": "relu", "trunk": "tanh"},num_outputs=2,
 )
 
-laplace_op = DeepONet.EvaluateDeepONetPDEs(model, DeepONet.laplacian)
-
-
-def ErrorMeasure(X, rhs):
-    lhs = -0.01 * (laplace_op(X)) * scaler_solution
-    lhs = np.squeeze(lhs)
-    return np.linalg.norm(lhs - rhs, axis=1) / np.linalg.norm(rhs, axis=1)
 
 
 # %%
@@ -153,17 +147,17 @@ model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
     save_best_only=True,
     mode="min",
 )
-# model.load_weights(checkpoint_fname)
-# h = model.load_history(filebase)
-h = model.fit(
-    data_train.dataset,
-    validation_data=data_test.dataset,
-    epochs=500,
-    verbose=2,
-    callbacks=[model_checkpoint],
-)
-model.save_history(filebase)
 model.load_weights(checkpoint_fname)
+h = model.load_history(filebase)
+# h = model.fit(
+#     data_train.dataset,
+#     validation_data=data_test.dataset,
+#     epochs=1000,
+#     verbose=2,
+#     callbacks=[model_checkpoint],
+# )
+# model.save_history(filebase)
+# model.load_weights(checkpoint_fname)
 
 
 stop_time = timeit.default_timer()
@@ -229,14 +223,101 @@ for i,idx in enumerate(min_median_max_index):
     data={'x':x_grid_file,'t':t[:,0],"T_true":Ttrue,"T_pred":Tpred,"alpha_true":alpha_true,"alpha_pred":alpha_pred}
     data_video.append(data)
 # %%
-ani=DeepONet.get_video(data_video[0])
-HTML(ani.to_html5_video())
+# ani=DeepONet.get_video(data_video[0])
+# HTML(ani.to_html5_video())
+# # %%
+# ani=DeepONet.get_video(data_video[1])
+# HTML(ani.to_html5_video())
+# # %%
+# ani=DeepONet.get_video(data_video[-1])
+# HTML(ani.to_html5_video())
 # %%
-ani=DeepONet.get_video(data_video[1])
-HTML(ani.to_html5_video())
+
+
+class EvaluateDeepONetPDEs:
+    """Generates the derivative of the outputs with respect to the trunck inputs.
+    Args:
+        model: DeepOnet.
+        operator: Operator to apply to the outputs for derivative.
+    """
+
+    def __init__(self, model, operator):
+        self.op = operator
+        self.model = model
+
+        @tf.function
+        def op(inputs):
+            y = self.model(inputs)
+            # QB: inputs[1] is the input of the trunck
+            # QB: y[0] is the output corresponding
+            # to the first input sample of the branch input,
+            # each time we only consider one sample
+            return self.op(y[0], inputs[1])
+
+        self.tf_op = op
+
+    def __call__(self, inputs):
+        self.value = []
+        input_branch, input_trunck,masks = inputs
+        for inp,mask in zip(input_branch, masks):
+            x = (inp[None, :], input_trunck,mask[None, :,:])
+            self.value.append(self.tf_op(x))
+        #self.value = tf.stack(self.value).numpy()
+        return self.value
+
+    def get_values(self):
+        return self.value
+
+# laplace_op = EvaluateDeepONetPDEs(model, DeepONet.laplacian)
+# laplace_op_val_ = laplace_op((x_validate[0][min_median_max_index], x_validate[1],x_validate[2][min_median_max_index]))
 # %%
-ani=DeepONet.get_video(data_video[-1])
-HTML(ani.to_html5_video())
+A, Er, m, n, Ca, alpha_c = 8.55e15, 110750, 0.77, 1.72, 14.48, 0.405
+rho, kappa, Cp, H=980.0, 0.152, 1600.5, 350000.0
+R = 8.314
+def residual_op(y,x,epsilon=tf.constant(1.0)):
+    # y shape=(np,2)
+    # x shape=(np,2) [t,x ]
+    T=y[:,0:1] # (np,1)
+    alpha=y[:,1:2] #(np,1)
+    T_X=DeepONet.jacobian(T,x) # (np,2)
+    T_t=T_X[:,0:1]*scaler_T/scaler_t # (np,1)
+    T_x=T_X[:,1:2]*scaler_T/scaler_x # (np,1)
+
+
+    T_xx=DeepONet.jacobian(T_x,x)[:,1:2]/scaler_x# (np,1)
+
+    alpha_X=DeepONet.jacobian(alpha,x) # (np,2)
+    alpha_t=alpha_X[:,0:1]/scaler_t # (np,1)
+
+
+    T_raw=(T*scaler_T+shift_T)
+    exp_term = tf.exp(-Er / (R * T_raw))
+    term1 = tf.pow(1 - alpha, n)
+    term2 = tf.pow(alpha, m)
+    denom_term = 1 + tf.exp(Ca * (alpha - alpha_c))
+    reaction_rhs = A * exp_term * term1 * term2 / denom_term
+
+    eps = tf.where(reaction_rhs > epsilon, reaction_rhs, epsilon)
+
+    res_T=tf.abs((T_t*Cp/H-kappa/(rho*Cp)*T_xx-reaction_rhs)/eps)
+    res_alpha=tf.abs((alpha_t-reaction_rhs)/eps)
+    return res_T,res_alpha,T_t*Cp/H,kappa/(rho*Cp)*T_xx,reaction_rhs,alpha_t,T_x
+# %%
+def ErrorMeasure(X, rhs):
+    lhs = -0.01 * (laplace_op(X)) * scaler_solution
+    lhs = np.squeeze(lhs)
+    return np.linalg.norm(lhs - rhs, axis=1) / np.linalg.norm(rhs, axis=1)
+
+res_op = EvaluateDeepONetPDEs(model, residual_op)
+res_op_val_ = res_op((x_validate[0][min_median_max_index], x_validate[1],x_validate[2][min_median_max_index]))
+res_op_val_=res_op_val_[0]
+
+# %%
+plt.pcolormesh(t_*scaler_t,x_*scaler_x,res_op_val_[3].numpy()[:,0].reshape(201,101))
+plt.colorbar()
+plt.xlabel('t [s]')
+plt.ylabel('x [m]')
+plt.title('kappa/(rho*Cp)*T_xx')
 # %%
 
 # # %%
@@ -416,3 +497,5 @@ HTML(ani.to_html5_video())
 # # %%timeit
 # # laplace_op_val_ = laplace_op((source_terms, x_train[1]))
 
+
+# %%
