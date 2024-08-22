@@ -79,6 +79,7 @@ class DeepONetCartesianProd(keras.Model):
             ys.append(y)
             shift += self.shift_size
         ys=tf.stack(ys, axis=-1)
+        #ys=tf.sigmoid(ys) # make sure the output is in [0,1]
         ys=tf.squeeze(ys)
         # if mask is None:
         #     return ys
@@ -211,6 +212,7 @@ class TripleCartesianProd:
 
 
 
+
 class EvaluateDeepONetPDEs:
     """Generates the derivative of the outputs with respect to the trunck inputs.
     Args:
@@ -229,17 +231,17 @@ class EvaluateDeepONetPDEs:
             # QB: y[0] is the output corresponding
             # to the first input sample of the branch input,
             # each time we only consider one sample
-            return self.op(y[0][:, None], inputs[1])
-
+            return self.op(y[0], inputs[1])
         self.tf_op = op
 
-    def __call__(self, inputs):
+    def __call__(self, inputs,stack=True):
         self.value = []
-        input_branch, input_trunck = inputs
-        for inp in input_branch:
-            x = (inp[None, :], input_trunck)
+        input_branch, input_trunck,masks = inputs
+        for inp,mask in zip(input_branch, masks):
+            x = (inp[None, :], input_trunck,mask[None, :,:])
             self.value.append(self.tf_op(x))
-        self.value = tf.stack(self.value).numpy()
+        if stack:
+            self.value = tf.stack(self.value).numpy()
         return self.value
 
     def get_values(self):

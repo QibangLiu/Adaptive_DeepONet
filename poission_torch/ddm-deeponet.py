@@ -113,8 +113,8 @@ checkpoint_callback = DeepONet.ModelCheckpoint(
 
 # %%
 
-# h = model.fit(train_loader,test_loader, epochs=1000, callbacks=checkpoint_callback)
-# model.save_logs(filebase)
+h = model.fit(train_loader,test_loader, epochs=1000, callbacks=checkpoint_callback)
+model.save_logs(filebase)
 # %%
 
 model.load_weights(checkpoint_fname, device)

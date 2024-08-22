@@ -16,11 +16,11 @@ import deepxde as dde
 from deepxde.backend import tf
 import timeit
 from IPython.display import HTML
-
+import scipy.integrate as sciint
 # In[]
 
 filebase = "./saved_model/poisson_FP1D"
-
+train = False
 # In[3]:
 
 
@@ -58,6 +58,8 @@ for i in range(len(t_data_file)):
 scaler_t=np.max(t_data_raw)
 t_data=t_data_raw/scaler_t
 x_,t_=np.meshgrid(x_grid,t_data)
+dx=x_grid_raw[1]-x_grid_raw[0]
+dt=t_data_raw[1]-t_data_raw[0]
 tx_data=(np.concatenate((t_.reshape(-1,1),x_.reshape(-1,1)),axis=1)) 
 Tmax,Tmin=max(Tmaxs),min(Tmins)
 scaler_T,shift_T=(Tmax-Tmin),Tmin
@@ -100,7 +102,7 @@ Talpha_data_padded=pad_sequences(Talpha_data,padding_value)
 mask = (Talpha_data_padded != padding_value).astype('float32')
 Talpha_data_padded=Talpha_data_padded*mask
 # %% 
-num_train=5000
+num_train=500
 pcs_train=pcs_data[:num_train]
 Talpha_train=Talpha_data_padded[:num_train]
 mask_train=mask[:num_train]
@@ -147,17 +149,19 @@ model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
     save_best_only=True,
     mode="min",
 )
-model.load_weights(checkpoint_fname)
-h = model.load_history(filebase)
-# h = model.fit(
-#     data_train.dataset,
-#     validation_data=data_test.dataset,
-#     epochs=1000,
-#     verbose=2,
-#     callbacks=[model_checkpoint],
-# )
-# model.save_history(filebase)
-# model.load_weights(checkpoint_fname)
+if train:
+    h = model.fit(
+        data_train.dataset,
+        validation_data=data_test.dataset,
+        epochs=1000,
+        verbose=2,
+        callbacks=[model_checkpoint],
+    )
+    model.save_history(filebase)
+    model.load_weights(checkpoint_fname)
+else:
+    model.load_weights(checkpoint_fname)
+    h = model.load_history(filebase)
 
 
 stop_time = timeit.default_timer()
@@ -223,101 +227,107 @@ for i,idx in enumerate(min_median_max_index):
     data={'x':x_grid_file,'t':t[:,0],"T_true":Ttrue,"T_pred":Tpred,"alpha_true":alpha_true,"alpha_pred":alpha_pred}
     data_video.append(data)
 # %%
-# ani=DeepONet.get_video(data_video[0])
-# HTML(ani.to_html5_video())
+ani=DeepONet.get_video(data_video[0])
+HTML(ani.to_html5_video())
+ani.save('FP1D_min.mp4')
 # # %%
-# ani=DeepONet.get_video(data_video[1])
-# HTML(ani.to_html5_video())
+ani=DeepONet.get_video(data_video[1])
+HTML(ani.to_html5_video())
+ani.save('FP1D_median.mp4')
 # # %%
-# ani=DeepONet.get_video(data_video[-1])
-# HTML(ani.to_html5_video())
+ani=DeepONet.get_video(data_video[-1])
+HTML(ani.to_html5_video())
+ani.save('FP1D_max.mp4')
 # %%
 
 
-class EvaluateDeepONetPDEs:
-    """Generates the derivative of the outputs with respect to the trunck inputs.
-    Args:
-        model: DeepOnet.
-        operator: Operator to apply to the outputs for derivative.
-    """
-
-    def __init__(self, model, operator):
-        self.op = operator
-        self.model = model
-
-        @tf.function
-        def op(inputs):
-            y = self.model(inputs)
-            # QB: inputs[1] is the input of the trunck
-            # QB: y[0] is the output corresponding
-            # to the first input sample of the branch input,
-            # each time we only consider one sample
-            return self.op(y[0], inputs[1])
-
-        self.tf_op = op
-
-    def __call__(self, inputs):
-        self.value = []
-        input_branch, input_trunck,masks = inputs
-        for inp,mask in zip(input_branch, masks):
-            x = (inp[None, :], input_trunck,mask[None, :,:])
-            self.value.append(self.tf_op(x))
-        #self.value = tf.stack(self.value).numpy()
-        return self.value
-
-    def get_values(self):
-        return self.value
 
 # laplace_op = EvaluateDeepONetPDEs(model, DeepONet.laplacian)
 # laplace_op_val_ = laplace_op((x_validate[0][min_median_max_index], x_validate[1],x_validate[2][min_median_max_index]))
+
 # %%
-A, Er, m, n, Ca, alpha_c = 8.55e15, 110750, 0.77, 1.72, 14.48, 0.405
-rho, kappa, Cp, H=980.0, 0.152, 1600.5, 350000.0
-R = 8.314
-def residual_op(y,x,epsilon=tf.constant(1.0)):
+
+def VolumeIntegral1D(A,  dx):
+    int1 = sciint.simpson(A, dx=dx, axis=-1)  # int along x
+    return int1
+
+# %%
+
+def derivative_op(y,x):
     # y shape=(np,2)
     # x shape=(np,2) [t,x ]
     T=y[:,0:1] # (np,1)
     alpha=y[:,1:2] #(np,1)
     T_X=DeepONet.jacobian(T,x) # (np,2)
-    T_t=T_X[:,0:1]*scaler_T/scaler_t # (np,1)
     T_x=T_X[:,1:2]*scaler_T/scaler_x # (np,1)
-
-
-    T_xx=DeepONet.jacobian(T_x,x)[:,1:2]/scaler_x# (np,1)
-
-    alpha_X=DeepONet.jacobian(alpha,x) # (np,2)
-    alpha_t=alpha_X[:,0:1]/scaler_t # (np,1)
-
-
     T_raw=(T*scaler_T+shift_T)
-    exp_term = tf.exp(-Er / (R * T_raw))
-    term1 = tf.pow(1 - alpha, n)
-    term2 = tf.pow(alpha, m)
-    denom_term = 1 + tf.exp(Ca * (alpha - alpha_c))
-    reaction_rhs = A * exp_term * term1 * term2 / denom_term
+    return T_raw,alpha,T_x
 
-    eps = tf.where(reaction_rhs > epsilon, reaction_rhs, epsilon)
+def ErrorMeasure(inputs,op,dx=dx,dt=dt):
+    A, Er, m, n, Ca, alpha_c = 8.55e15, 110750, 0.77, 1.72, 14.48, 0.405
+    rho, kappa, Cp, H=980.0, 0.152, 1600.5, 350000.0
+    R = 8.314
 
-    res_T=tf.abs((T_t*Cp/H-kappa/(rho*Cp)*T_xx-reaction_rhs)/eps)
-    res_alpha=tf.abs((alpha_t-reaction_rhs)/eps)
-    return res_T,res_alpha,T_t*Cp/H,kappa/(rho*Cp)*T_xx,reaction_rhs,alpha_t,T_x
+    data_all=op(inputs,stack=False)
+    masks_all=inputs[2]
+    res_all=[]
+    idt1,idt2=30,-5
+    idx1,idx2=10,-10
+    for data,masks in zip(data_all,masks_all):
+        T_raw,alpha,T_x=data
+        indices=np.where(masks[:,0]==1.0)[0]
+        T_x=T_x.numpy()[indices].reshape(-1,Nx)[idt1:idt2,idx1:idx2]
+        
+        alpha=alpha.numpy()[indices].reshape(-1,Nx)[idt1:idt2,idx1:idx2]
+        T_raw=T_raw.numpy()[indices].reshape(-1,Nx)[idt1:idt2,idx1:idx2]
+
+        alpha=np.maximum(alpha,0.0)
+        alpha=np.minimum(alpha,1.0)
+        
+        exp_term = A*np.exp(-Er / (R * T_raw))
+        f_alpha = (1-alpha)**m*alpha**n/(1 + np.exp(Ca * (alpha - alpha_c)))
+        rea_rhs =  exp_term * f_alpha
+
+        
+        item1=(sciint.simpson(T_raw[-1]-T_raw[0],dx=dx))*Cp/H
+        item2=(sciint.simpson(T_x[:,-1]-T_x[:,0],dx=dt))*kappa/(rho*H)
+        item3=sciint.simpson(alpha[-1]-alpha[0],dx=dx)
+        item4_1=sciint.simpson(rea_rhs,dx=dx,axis=-1)
+        item4=sciint.simpson(item4_1,dx=dt)
+        res=abs(item1-item2-item3)/abs(item3)+abs(item4-item3)/abs(item3)
+        res_all.append(res*0.5)
+    return np.array(res_all)
+    
+
 # %%
-def ErrorMeasure(X, rhs):
-    lhs = -0.01 * (laplace_op(X)) * scaler_solution
-    lhs = np.squeeze(lhs)
-    return np.linalg.norm(lhs - rhs, axis=1) / np.linalg.norm(rhs, axis=1)
 
-res_op = EvaluateDeepONetPDEs(model, residual_op)
-res_op_val_ = res_op((x_validate[0][min_median_max_index], x_validate[1],x_validate[2][min_median_max_index]))
-res_op_val_=res_op_val_[0]
-
+op = DeepONet.EvaluateDeepONetPDEs(model, derivative_op)
 # %%
-plt.pcolormesh(t_*scaler_t,x_*scaler_x,res_op_val_[3].numpy()[:,0].reshape(201,101))
-plt.colorbar()
-plt.xlabel('t [s]')
-plt.ylabel('x [m]')
-plt.title('kappa/(rho*Cp)*T_xx')
+res_op_val_ = ErrorMeasure((x_validate[0], x_validate[1],x_validate[2]),op)
+# %%
+gap=2
+plt.plot(error_s[sort_idx][::gap],(res_op_val_)[sort_idx][::gap],'o')
+# Fit a straight line
+coefficients = np.polyfit(error_s[sort_idx], (res_op_val_)[sort_idx], 1)
+line = np.poly1d(coefficients)
+
+# Plot the line
+plt.plot(error_s[sort_idx], (res_op_val_)[sort_idx], 'o')
+plt.plot(error_s[sort_idx], line(error_s[sort_idx]), color='red')
+
+# Add labels and title
+plt.xlabel('L2 Relative Error')
+plt.ylabel('Residual Error')
+plt.title('L2 Relative Error vs Residual Error')
+# plt.xlim(0.005, 0.02)
+# plt.ylim(0.00, 0.015)
+#%%
+correlation = np.corrcoef(error_s, res_op_val_)[0, 1]
+print("Pearson correlation coefficient:", correlation)
+
+from scipy.stats import spearmanr
+r_spearman, _ = spearmanr(error_s, res_op_val_)
+print(f"Spearman's rank correlation coefficient: {r_spearman}")
 # %%
 
 # # %%
