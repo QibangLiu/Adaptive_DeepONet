@@ -28,10 +28,10 @@ def GetL2Error(filebase,filename="TestL2Error.csv"):
             L2error = np.genfromtxt(
                 os.path.join(iter, filename), dtype="float32", delimiter=","
             )
-            mean_L2.append(np.mean(L2error[522:525]))
-            max_L2.append(np.max(L2error[522:525]))
-            print(filebase,np.argmax(L2error))
-            std_L2.append(np.std(L2error[522:525]))
+            mean_L2.append(np.mean(L2error[:]))
+            max_L2.append(np.max(L2error[:]))
+            #print(filebase,np.argmax(L2error))
+            std_L2.append(np.std(L2error[5:]))
     return num_samples, np.array(mean_L2), np.array(max_L2), np.array(std_L2),trainDataIDXs
 
 
@@ -51,11 +51,16 @@ def get_labels(paras):
 
 prefix_filebase = "../saved_model/"
 caseID = 0
-dN='50'
-paras = [("0", "1", dN), ("1", "1", dN), ("2", "1", dN), ("2", "0", dN)]
+dN='40'
+N0='40'
+paras = [("0", dN, N0), ("1", dN, N0), ("2", dN, N0), ("4", dN, N0)]
+paras = [("0", "1", "400"), ("1", "1", "400"), ("2", "1", "400"), ("2", "0", "400")]
 labels = get_labels(paras)
 filebases = []
 for para in paras:
+    project_name = (
+        "adapt_k" + para[0] + "c0" + "dN" + para[1] + 'N0'+para[2]+ "case"+str(caseID)
+    )
     project_name = (
         "adapt_k" + para[0] + "c" + para[1] + "dN" + para[2] + "case"+str(caseID)
     )
@@ -100,7 +105,7 @@ pcs_data_raw=fenics_data["process_condition"].astype(np.float32)
 # %%
 pcs=[]
 for idxs in trainDataIDXs:
-    pcs.append(pcs_data_raw[idxs[-7],:])
+    pcs.append(pcs_data_raw[idxs[-1],:])
 fig = plt.figure(figsize=(8, 8))
 for i in range(1,5):
     ax=plt.subplot(2,2,i)

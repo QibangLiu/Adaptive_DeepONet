@@ -17,19 +17,19 @@ from deepxde.backend import tf
 import timeit
 from IPython.display import HTML
 import scipy.integrate as sciint
-# %run ddm-deeponet_adaptive_tf.py 500 0 2 1 1 0
+# %run ddm-deeponet_adaptive_tf.py 200 40 0 2 0 0 0
 # In[]
 
 prefix_filebase = "./saved_model"
 # diff_method = "FD"
-str_dN, str_start, str_end = sys.argv[1:4]
-str_k, str_c = sys.argv[4:-1]
+str_N0, str_dN, str_start, str_end = sys.argv[1:5]
+str_k, str_c = sys.argv[5:-1]
 str_caseID = sys.argv[-1]
 
 # In[3]:
 
 
-fenics_data = scio.loadmat("./TrainingData/FP1D_all.mat")
+fenics_data = scio.loadmat("./TrainingData/FP1Drand_all.mat")
 
 x_grid_file=fenics_data["x_data"].squeeze()
 T_data_file=fenics_data["Temp_data"].squeeze()
@@ -49,7 +49,7 @@ t_data=np.array([0])
 Tmaxs,Tmins=[],[]
 for i in range(len(t_data_file)):
     t_temp=t_data_file[i].squeeze().astype(np.float32)
-    if len(t_temp)>len(t_data):
+    if len(t_temp)>len(t_data_raw):
         t_data_raw=t_temp
     
     T_data_raw.append(T_data_file[i].reshape(-1,1).astype(np.float32))
@@ -107,16 +107,18 @@ Talpha_data_padded=pad_sequences(Talpha_data,padding_value)
 mask = (Talpha_data_padded != padding_value).astype('float32')
 Talpha_data_padded=Talpha_data_padded*mask
 # %% 
-num_train=-1000
+num_testing=100
+num_train=-num_testing
 pcs_train=pcs_data[:num_train]
 Talpha_train=Talpha_data_padded[:num_train]
 mask_train=mask[:num_train]
 Talpha_raw_train=Talpha_data_raw[:num_train]
 
-pcs_testing=pcs_data[-1000:]
-Talpha_testing=Talpha_data_padded[-1000:]
-mask_testing=mask[-1000:]
-Talpha_raw_testing=Talpha_data_raw[-1000:]
+
+pcs_testing=pcs_data[-num_testing:]
+Talpha_testing=Talpha_data_padded[-num_testing:]
+mask_testing=mask[-num_testing:]
+Talpha_raw_testing=Talpha_data_raw[-num_testing:]
 # %%
 # x_train = (pcs_train, tx_data)
 # y_train = Talpha_train
@@ -213,11 +215,11 @@ def L2RelativeError(x_validate=x_validate, y_validate=y_validate,model=model,sca
 # %%
 
 
-def sampling(iter, dN, pre_filebase):
+def sampling(iter, dN,N0, pre_filebase):
     all_data_idx = np.arange(len(pcs_train))
     currTrainDataIDX__ = None
     if iter == 0:
-        currTrainDataIDX__ = np.random.choice(a=all_data_idx, size=dN, replace=False)
+        currTrainDataIDX__ = np.random.choice(a=all_data_idx, size=N0, replace=False)
     else:
         pre_train_data_idx = np.genfromtxt(
             os.path.join(pre_filebase, "trainDataIDX.csv"), dtype=int, delimiter=","
@@ -242,13 +244,14 @@ def sampling(iter, dN, pre_filebase):
 
 # %%
 numCase_add = int(str_dN)
+numN0 = int(str_N0)
 k = float(str_k)
 c = float(str_c)
 
 iter_start, iter_end = int(str_start), int(str_end)
 
 project_name = (
-     "adapt_k" + str_k + "c" + str_c + "dN" + str_dN + "case" + str_caseID
+     "adapt_k" + str_k + "c" + str_c + "dN" + str_dN + "N0"+ str_N0+ "case" + str_caseID
 )
 filebase = os.path.join(prefix_filebase, project_name)
 start_time = timeit.default_timer()
@@ -264,7 +267,7 @@ for iter in range(iter_start, iter_end):
     current_filebase = os.path.join(filebase, "iter" + str(iter))
     os.makedirs(current_filebase, exist_ok=True)
     # restore_path = find_checkpoint_2restore(pre_filebase)
-    currTrainDataIDX = sampling(iter, numCase_add, pre_filebase)
+    currTrainDataIDX = sampling(iter, numCase_add,numN0, pre_filebase)
 
     np.savetxt(
         os.path.join(current_filebase, "trainDataIDX.csv"),

@@ -11,12 +11,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import scipy.io as scio
-from deepxde import utils
-import deepxde as dde
-from deepxde.backend import tf
+# from deepxde import utils
+# import deepxde as dde
+# from deepxde.backend import tf
+import tensorflow as tf
 import timeit
 from IPython.display import HTML
 import scipy.integrate as sciint
+physical_devices = tf.config.list_physical_devices()
+for dev in physical_devices:
+    print(dev)
+print("tf version:", tf.__version__)
 # In[]
 
 filebase = "./saved_model/poisson_FP1D"
@@ -103,15 +108,17 @@ mask = (Talpha_data_padded != padding_value).astype('float32')
 Talpha_data_padded=Talpha_data_padded*mask
 # %% 
 num_train=500
+num_test=pcs_data.shape[0]-num_train
 pcs_train=pcs_data[:num_train]
 Talpha_train=Talpha_data_padded[:num_train]
 mask_train=mask[:num_train]
 Talpha_raw_train=Talpha_data_raw[:num_train]
 
-pcs_testing=pcs_data[-1000:]
-Talpha_testing=Talpha_data_padded[-1000:]
-mask_testing=mask[-1000:]
-Talpha_raw_testing=Talpha_data_raw[-1000:]
+pcs_testing=pcs_data[-num_test:]
+pcs_testing_raw=pcs_data_raw[-num_test:]
+Talpha_testing=Talpha_data_padded[-num_test:]
+mask_testing=mask[-num_test:]
+Talpha_raw_testing=Talpha_data_raw[-num_test:]
 # %%
 x_train = (pcs_train, tx_data)
 y_train = Talpha_train
@@ -178,6 +185,7 @@ ax.set_yscale("log")
 # Plotting Results
 # %%
 x_validate=(x_testing[0],x_testing[1],mask_testing)
+pcs_validate_raw=pcs_testing_raw
 y_validate=Talpha_raw_testing
 mask_validate=x_validate[2].astype(bool)
 
@@ -227,17 +235,17 @@ for i,idx in enumerate(min_median_max_index):
     data={'x':x_grid_file,'t':t[:,0],"T_true":Ttrue,"T_pred":Tpred,"alpha_true":alpha_true,"alpha_pred":alpha_pred}
     data_video.append(data)
 # %%
-ani=DeepONet.get_video(data_video[0])
-HTML(ani.to_html5_video())
-ani.save('FP1D_min.mp4')
-# # %%
-ani=DeepONet.get_video(data_video[1])
-HTML(ani.to_html5_video())
-ani.save('FP1D_median.mp4')
-# # %%
-ani=DeepONet.get_video(data_video[-1])
-HTML(ani.to_html5_video())
-ani.save('FP1D_max.mp4')
+# ani=DeepONet.get_video(data_video[0])
+# HTML(ani.to_html5_video())
+# ani.save('FP1D_min.mp4')
+# # # %%
+# ani=DeepONet.get_video(data_video[1])
+# HTML(ani.to_html5_video())
+# ani.save('FP1D_median.mp4')
+# # # %%
+# ani=DeepONet.get_video(data_video[-1])
+# HTML(ani.to_html5_video())
+# ani.save('FP1D_max.mp4')
 # %%
 
 
@@ -329,183 +337,31 @@ from scipy.stats import spearmanr
 r_spearman, _ = spearmanr(error_s, res_op_val_)
 print(f"Spearman's rank correlation coefficient: {r_spearman}")
 # %%
+fig=plt.figure(figsize=(12,5))
+ax=plt.subplot(1,2,1)
+c1=ax.scatter(pcs_validate_raw[:,0],pcs_validate_raw[:,1],c=res_op_val_,cmap='jet')
+cbar = fig.colorbar(c1, ax=ax)
+ax=plt.subplot(1,2,2)
+c2=ax.scatter(pcs_validate_raw[:,0],pcs_validate_raw[:,1],c=error_s,cmap='jet')
+cbar = fig.colorbar(c2, ax=ax)
 
-# # %%
-# laplace_op_val_ = laplace_op((x_validate[0][min_median_max_index], x_validate[1]))
-# # %%
-# laplace_op_val = -0.01 * laplace_op_val_ * scaler_solution
+# %%
+k,c=0.1,0.0
+LR=res_op_val_
+probility = np.power(LR, k) / np.power(LR, k).mean() + c
+probility_normalized = probility / np.sum(probility)
+s_idx = np.random.choice(
+    a=np.arange(len(pcs_validate_raw)),
+    size=600,
+    replace=False,
+    p=probility_normalized,
+)
 
-
-# nr, nc = 3, 2
-# i = 0
-# fig = plt.figure(figsize=(8, 10))
-
-
-# for i, index in enumerate(min_median_max_index):
-
-#     vmin = np.min(u0_validate[index])
-#     vmax = np.max(u0_validate[index])
-
-#     ax = plt.subplot(nr, nc, nc * i + 1)
-#     # py.figure(figsize = (14,7))
-#     c1 = ax.contourf(
-#         x_grid,
-#         y_grid,
-#         u0_validate[index].reshape(Ny, Nx),
-#         20,
-#         vmax=vmax,
-#         vmin=vmin,
-#         cmap="jet",
-#     )
-#     ax.set_title(r"Source Distrubution")
-#     cbar = fig.colorbar(c1, ax=ax)
-#     plt.tight_layout()
-#     ax = plt.subplot(nr, nc, nc * i + 2)
-#     # py.figure(figsize = (14,7))
-#     c2 = ax.contourf(
-#         x_grid,
-#         y_grid,
-#         laplace_op_val[i].reshape(Ny, Nx),
-#         20,
-#         vmax=vmax,
-#         vmin=vmin,
-#         cmap="jet",
-#     )
-#     ax.set_title(r"$-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
-#     cbar = fig.colorbar(c2, ax=ax)
-#     plt.tight_layout()
-
-
-# # %%
-# ErrorMeasure(
-#     (x_validate[0][min_median_max_index], x_validate[1]),
-#     u0_validate[min_median_max_index],
-# )
-
-# dx = x_grid[0, 1] - x_grid[0, 0]
-# dy = y_grid[1, 0] - y_grid[0, 0]
-# dx=(np.max(x_grid)-np.min(x_grid))/(Nx-1)/5
-# dy=(np.max(y_grid)-np.min(y_grid))/(Ny-1)/5
-# dx=dx.astype(np.float32)
-# dy=dy.astype(np.float32)
-# # %%
-# def laplacian_FD(X_data, dx, dy,model):
-#     """u shape=(batch_size,Ny,Nx)
-#     x shape=(Ny*Nx,2)
-#     return shape=(batch_size,Ny-2,Nx-2)"""
-#     x=X_data[1] # shape=(Ny*Nx,2) coordinates
-#     u0=X_data[0] # shape=(batch_size,Ny*Nx) source terms
-#     x_plus_dx=np.concatenate( (x[:,0:1]+dx, x[:,1:2]),axis=1)
-#     x_minus_dx=np.concatenate( (x[:,0:1]-dx, x[:,1:2]),axis=1)
-#     x_plus_dy=np.concatenate( (x[:,0:1], x[:,1:2]+dy),axis=1)
-#     x_minus_dy=np.concatenate( (x[:,0:1], x[:,1:2]-dy),axis=1)
-#     u=model((u0,x))
-#     u_plus_dx=model((u0,x_plus_dx))
-#     u_minus_dx=model((u0,x_minus_dx))
-#     u_plus_dy=model((u0,x_plus_dy))
-#     u_minus_dy=model((u0,x_minus_dy))
-#     du_dxx=(u_plus_dx-2*u+u_minus_dx)/dx**2
-#     du_dyy=(u_plus_dy-2*u+u_minus_dy)/dy**2
-#     lap = du_dxx + du_dyy
-#     return lap
-
-# X_data = (x_validate[0][min_median_max_index], x_validate[1])
-# x=X_data[1] # shape=(Ny*Nx,2) coordinates
-# u0=X_data[0] # shape=(batch_size,Ny*Nx) source terms
-# x_plus_dx=np.concatenate( (x[:,0:1]+dx, x[:,1:2]),axis=1)
-# u=model((u0,x)).numpy().reshape(-1,Ny,Nx)*scaler_solution+shift_solution
-# u_plus_dx=model((u0,x_plus_dx)).numpy().reshape(-1,Ny,Nx)*scaler_solution+shift_solution
-# # %%
-# # def laplacian_FD(u,dx,dy):
-# #     """u shape=(batch_size,Ny,Nx)
-# #     return shape=(batch_size,Ny-2,Nx-2)"""
-# #     du_dxx=(u[:,1:-1,2:]-2*u[:,1:-1,1:-1]+u[:,1:-1,:-2])/dx**2
-# #     du_dyy=(u[:,2:,1:-1]-2*u[:,1:-1,1:-1]+u[:,:-2,1:-1])/dy**2
-# #     return du_dxx+du_dyy
-
-# laplace_FD_val=-0.01*laplacian_FD((x_validate[0][min_median_max_index], x_validate[1]), dx, dy,model)*scaler_solution
-
-# #laplace_FD_val = -0.01 * laplacian_FD(y_pred[min_median_max_index].reshape(-1,Ny,Nx), dx, dy)
-# #laplace_FD_true= -0.01 * don.laplacian_FD(y_validate[min_median_max_index].reshape(-1,Ny,Nx), dx, dy)
-# laplace_FD_true=laplace_FD_val
-# # %%
-# nr, nc = 3, 4
-# i = 0
-# fig = plt.figure(figsize=(16, 10))
-
-
-# for i, index in enumerate(min_median_max_index):
-
-#     vmin = np.min(u0_validate[index])
-#     vmax = np.max(u0_validate[index])
-
-#     ax = plt.subplot(nr, nc, nc * i + 1)
-#     # py.figure(figsize = (14,7))
-#     c1 = ax.contourf(
-#         x_grid,
-#         y_grid,
-#         u0_validate[index].reshape(Ny, Nx),
-#         20,
-#         vmax=vmax,
-#         vmin=vmin,
-#         cmap="jet",
-#     )
-#     ax.set_title(r"Source Distrubution")
-#     cbar = fig.colorbar(c1, ax=ax)
-#     plt.tight_layout()
-
-#     # ax = plt.subplot(nr, nc, nc * i + 2)
-#     # # py.figure(figsize = (14,7))
-#     # c3 = ax.contourf(
-#     #     x_grid[1:-1, 1:-1],
-#     #     y_grid[1:-1, 1:-1],
-#     #     laplace_FD_true[i],
-#     #     20,
-#     #     vmax=vmax,
-#     #     vmin=vmin,
-#     #     cmap="jet",
-#     # )
-#     # ax.set_title(r"Source Distrubution by FD of Reference Solution")
-#     # cbar = fig.colorbar(c3, ax=ax)
-#     # plt.tight_layout()
-
-#     ax = plt.subplot(nr, nc, nc * i + 3)
-#     # py.figure(figsize = (14,7))
-#     c2 = ax.contourf(
-#         x_grid,
-#         y_grid,
-#         laplace_op_val[i].reshape(Ny, Nx),
-#         20,
-#         vmax=vmax,
-#         vmin=vmin,
-#         cmap="jet",
-#     )
-#     ax.set_title(r"AD: $-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
-#     cbar = fig.colorbar(c2, ax=ax)
-#     plt.tight_layout()
-
-#     ax = plt.subplot(nr, nc, nc * i + 4)
-#     # py.figure(figsize = (14,7))
-#     c3 = ax.contourf(
-#         x_grid,
-#         y_grid,
-#         laplace_FD_val[i].numpy().reshape(Ny, Nx),
-#         # x_grid[1:-1, 1:-1],
-#         # y_grid[1:-1, 1:-1],
-#         # laplace_FD_val[i],
-#         20,
-#         vmax=vmax,
-#         vmin=vmin,
-#         cmap="jet",
-#     )
-#     ax.set_title(r"FD: $-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
-#     cbar = fig.colorbar(c3, ax=ax)
-#     plt.tight_layout()
-
-
-# # # %%
-# # %%timeit
-# # laplace_op_val_ = laplace_op((source_terms, x_train[1]))
-
-
+fig=plt.figure(figsize=(12,5))
+ax=plt.subplot(1,2,1)
+c1=ax.scatter(pcs_validate_raw[s_idx,0],pcs_validate_raw[s_idx,1],c=res_op_val_[s_idx],cmap='jet')
+cbar = fig.colorbar(c1, ax=ax)
+ax=plt.subplot(1,2,2)
+c2=ax.scatter(pcs_validate_raw[s_idx,0],pcs_validate_raw[s_idx,1],c=error_s[s_idx],cmap='jet')
+cbar = fig.colorbar(c2, ax=ax)
 # %%
