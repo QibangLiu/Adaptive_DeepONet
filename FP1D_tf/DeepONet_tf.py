@@ -32,9 +32,9 @@ class DeepONetCartesianProd(keras.Model):
         self.branch = self.build_net(
             layer_sizes_branch, self.activation_branch,False, apply_activation_outlayer
         )
-        self.b = tf.Variable(tf.zeros(1))
+        self.b = tf.Variable(tf.zeros(1,dtype=tf.float64))
         self.b = [
-            tf.Variable(tf.zeros(1))
+            tf.Variable(tf.zeros(1,dtype=tf.float64))
             for _ in range(self.num_outputs)
         ]
         if self.trunk.output_shape != self.branch.output_shape:

@@ -51,10 +51,10 @@ def get_labels(paras):
 
 prefix_filebase = "../saved_model/"
 caseID = 0
-dN='40'
+dN='50'
 N0='40'
 paras = [("0", dN, N0), ("1", dN, N0), ("2", dN, N0), ("4", dN, N0)]
-paras = [("0", "1", "400"), ("1", "1", "400"), ("2", "1", "400"), ("2", "0", "400")]
+paras = [("0", "1", dN), ("1", "1", dN), ("2", "1", dN), ("2", "0", dN)]
 labels = get_labels(paras)
 filebases = []
 for para in paras:
