@@ -10,14 +10,13 @@ import json
 
 
 # In[]
-def GetL2Error(filebase,filename="TestL2Error.csv"):
+def GetL2Error(filebase,filename="TrainL2Error.csv"):
     iters = natsorted(next(os.walk(filebase))[1])
     iters_path = [os.path.join(filebase, iter) for iter in iters]
     num_samples = []
     mean_L2 = []
     max_L2 = []
     std_L2 = []
-    trainDataIDXs=[]
     L2_errors = []
     for iter in iters_path:
         if os.path.exists(os.path.join(iter, filename)):
@@ -25,19 +24,17 @@ def GetL2Error(filebase,filename="TestL2Error.csv"):
                 os.path.join(iter, "trainDataIDX.csv"), dtype=int, delimiter=","
             )
             num_samples.append(trainDataIDX.shape[0])
-            trainDataIDXs.append(trainDataIDX)
             L2error1 = np.genfromtxt(
                 os.path.join(iter, filename), dtype="float32", delimiter=","
             )
-            L2error=L2error1[L2error1 > 0.05]
+            L2error=L2error1[L2error1 > 0.01]
             if len(L2error)==0:
-                L2error=np.array([0])
-            mean_L2.append(np.sum(L2error[:]))
-            max_L2.append(np.max(L2error[:]))
-            #print(filebase,np.argmax(L2error))
-            std_L2.append(np.std(L2error[:]))
+                L2error=L2error1
+            mean_L2.append(np.sum(L2error))
+            max_L2.append(np.max(L2error))
+            std_L2.append(np.std(L2error))
             L2_errors.append(L2error)
-    return num_samples, np.array(mean_L2), np.array(max_L2), np.array(std_L2),trainDataIDXs,L2_errors
+    return num_samples, np.array(mean_L2), np.array(max_L2), np.array(std_L2),L2_errors
 
 
 def get_labels(paras):
@@ -52,36 +49,28 @@ def get_labels(paras):
 
 
 # %%
-
-
 prefix_filebase = "../saved_model/"
-caseID = 0
-dN='50'
-N0='40'
-paras = [("0", dN, N0), ("1", dN, N0), ("2", dN, N0), ("4", dN, N0)]
-paras = [("0", "1", dN), ("1", "1", dN), ("2", "1", dN), ("2", "0", dN)]
+caseID = 1
+dN="400"
+paras = [("0", "0", dN), ("1", "0", dN), ("2", "0", dN),("4", "0", dN),("8", "0", dN)]
+#paras = [("0", "1", "800"), ("1", "1", "800")]
 labels = get_labels(paras)
 filebases = []
 for para in paras:
-    project_name = (
-        "adapt_k" + para[0] + "c0" + "dN" + para[1] + 'N0'+para[2]+ "case"+str(caseID)
-    )
-    project_name = (
+    project_name = (#"PI-"+
         "adapt_k" + para[0] + "c" + para[1] + "dN" + para[2] + "case"+str(caseID)
     )
     filebases.append(os.path.join(prefix_filebase, project_name))
 
 
 numS, means, maxs, stds = [], [], [], []
-trainDataIDXs=[]
 L2_errors_all=[]
 for filebase in filebases:
-    numS1, mean1, max1, std1,idxs,L2error = GetL2Error(filebase)
+    numS1, mean1, max1, std1,L2error = GetL2Error(filebase)
     numS.append(numS1)
     means.append(mean1)
     maxs.append(max1)
     stds.append(std1)
-    trainDataIDXs.append(idxs)
     L2_errors_all.append(L2error)
 # %%
 fig = plt.figure(figsize=(12, 4))
@@ -106,21 +95,27 @@ ax.set_yscale("log")
 
 
 # %%
+def load_history(filebase):
+    his_file = os.path.join(filebase, "logs.json")
+    if os.path.exists(his_file):
+        with open(his_file, "r") as f:
+            fit_history = json.load(f)
+    return fit_history
 
-fenics_data = scio.loadmat("../TrainingData/FP1D_all.mat")
-pcs_data_raw=fenics_data["process_condition"].astype(np.float32)
+
+h = load_history(filebases[-2])
 # %%
-pcs=[]
-for idxs in trainDataIDXs:
-    pcs.append(pcs_data_raw[idxs[-1],:])
-fig = plt.figure(figsize=(8, 8))
-for i in range(1,5):
-    ax=plt.subplot(2,2,i)
-    ax.scatter(pcs[i-1][:,0],pcs[i-1][:,1],c='r',s=0.5,label='Adaptive')
-    ax.set_title(labels[i-1])
-# %%
-num=numS[0]
-L2_errors=L2_errors_all[0]
+fig = plt.figure()
+ax = plt.subplot(1, 1, 1)
+sid=0
+ax.plot(h["loss"][sid:], label="loss")
+#ax.plot(h["val_loss"][sid:], label="val_loss")
+ax.legend()
+ax.set_yscale("log")
+
+ # %%
+num=numS[3]
+L2_errors=L2_errors_all[3]
 
 fig=plt.figure(figsize=(25,30))
 nc,nr=5,6

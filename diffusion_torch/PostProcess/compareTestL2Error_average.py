@@ -17,7 +17,6 @@ def GetL2Error(filebase,filename="TestL2Error.csv"):
     mean_L2 = []
     max_L2 = []
     std_L2 = []
-    L2_errors = []
     for iter in iters_path:
         if os.path.exists(os.path.join(iter, filename)):
             trainDataIDX = np.genfromtxt(
@@ -30,8 +29,7 @@ def GetL2Error(filebase,filename="TestL2Error.csv"):
             mean_L2.append(np.mean(L2error))
             max_L2.append(np.max(L2error))
             std_L2.append(np.std(L2error))
-            L2_errors.append(L2error)
-    return num_samples, np.array(mean_L2), np.array(max_L2), np.array(std_L2),L2_errors
+    return np.array(num_samples).astype('float32'), np.array(mean_L2), np.array(max_L2), np.array(std_L2)
 
 
 def get_labels(paras):
@@ -49,27 +47,42 @@ def get_labels(paras):
 
 
 prefix_filebase = "../saved_model/"
-caseID = 0
-paras = [("0", "0", "200"), ("0.5", "0", "200"), ("1.0", "0", "200"), ("2.0", "0", "200"),("4.0", "0", "200")]
+caseIDs=[0,1,2]
+paras = [("0", "1", "400"), ("1", "1", "400"), ("2", "1", "400"), ("2", "0", "400")]
 #paras = [("0", "1", "800"), ("1", "1", "800")]
 labels = get_labels(paras)
 filebases = []
 for para in paras:
-    project_name = (#"PI-"+
-        "adapt_k" + para[0] + "c" + para[1] + "dN" + para[2] + "case"+str(caseID)
-    )
-    filebases.append(os.path.join(prefix_filebase, project_name))
-
+    filebase_case = []
+    for caseID in caseIDs:
+        project_name = (#"PI-"+
+            "adapt_k" + para[0] + "c" + para[1] + "dN" + para[2] + "case"+str(caseID)
+        )
+        filebase_case.append(os.path.join(prefix_filebase, project_name))
+    filebases.append(filebase_case)
 
 numS, means, maxs, stds = [], [], [], []
-L2_errors_all=[]
-for filebase in filebases:
-    numS1, mean1, max1, std1,L2error = GetL2Error(filebase)
-    numS.append(numS1)
-    means.append(mean1)
-    maxs.append(max1)
-    stds.append(std1)
-    L2_errors_all.append(L2error)
+for filebase_case in filebases:
+    numS_case, means_case, maxs_case, stds_case = [], [], [], []
+    for filebase in filebase_case:
+        numS1, mean1, max1, std1 = GetL2Error(filebase)
+        numS_case.append(numS1)
+        means_case.append(mean1)
+        maxs_case.append(max1)
+        stds_case.append(std1)
+    len_case =max([len(numS1) for numS1 in numS_case])
+    for i in range(len(numS_case)):
+            numS_case[i]=np.pad(numS_case[i],(0,len_case-len(numS_case[i])),constant_values=np.nan)
+            means_case[i]=np.pad(means_case[i],(0,len_case-len(means_case[i])),constant_values=np.nan)
+            maxs_case[i]=np.pad(maxs_case[i],(0,len_case-len(maxs_case[i])),constant_values=np.nan)
+            stds_case[i]=np.pad(stds_case[i],(0,len_case-len(stds_case[i])),constant_values=np.nan)
+    numS_case=np.nanmean(np.array(numS_case),axis=0).astype(int)
+    means_case=np.nanmean(np.array(means_case),axis=0)
+    maxs_case=np.nanmean(np.array(maxs_case),axis=0)
+    stds_case=np.nanmean(np.array(stds_case),axis=0)
+    numS.append(numS_case)
+    means.append(means_case)
+    maxs.append(maxs_case)
 # %%
 fig = plt.figure(figsize=(12, 4))
 ax = plt.subplot(1, 2, 1)
@@ -94,34 +107,19 @@ ax.set_yscale("log")
 
 # %%
 def load_history(filebase):
-    his_file = os.path.join(filebase, "logs.json")
+    his_file = os.path.join(filebase, "history.json")
     if os.path.exists(his_file):
         with open(his_file, "r") as f:
             fit_history = json.load(f)
     return fit_history
 
 
-h = load_history(filebases[-2])
 # %%
-fig = plt.figure()
-ax = plt.subplot(1, 1, 1)
-sid=0
-ax.plot(h["loss"][sid:], label="loss")
-#ax.plot(h["val_loss"][sid:], label="val_loss")
-ax.legend()
-ax.set_yscale("log")
-
- # %%
-num=numS[3]
-L2_errors=L2_errors_all[3]
-
-fig=plt.figure(figsize=(25,30))
-nc,nr=5,6
-for i,l2error in enumerate(L2_errors):
-    ax=plt.subplot(nc,nr,i+1)
-    ax.hist(L2_errors[i],bins=20)
-    ax.set_xlabel("test L2 error")
-    #ax.set_xticks(np.arange(0,0.24,0.04))
-    ax.set_ylabel("Frequency")
-    ax.set_title("num of training samples: "+str(num[i]))
+# fig = plt.figure()
+# ax = plt.subplot(1, 1, 1)
+# sid=800
+# ax.plot(h["loss"][sid:sid+1600], label="loss")
+# ax.plot(h["val_loss"][sid:sid+1600], label="val_loss")
+# ax.legend()
+# ax.set_yscale("log")
 # %%

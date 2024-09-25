@@ -107,7 +107,7 @@ Talpha_data_padded=pad_sequences(Talpha_data,padding_value)
 mask = (Talpha_data_padded != padding_value).astype('float32')
 Talpha_data_padded=Talpha_data_padded*mask
 # %% 
-num_testing=100
+num_testing=1000
 num_train=-num_testing
 pcs_train=pcs_data[:num_train]
 Talpha_train=Talpha_data_padded[:num_train]
@@ -287,7 +287,7 @@ for iter in range(iter_start, iter_end):
     model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
         checkpoint_fname,
         save_weights_only=True,
-        monitor="val_loss",
+        monitor="loss",
         verbose=0,
         save_freq="epoch",
         save_best_only=True,
@@ -311,6 +311,17 @@ for iter in range(iter_start, iter_end):
         fmt="%.4e",
         delimiter=",",
     )
+    
+    curr_y_train_raw = Talpha_raw_train[currTrainDataIDX]
+    error_train,_=L2RelativeError(x_validate=(x_train[0],x_train[1],curr_mask_train),y_validate=Talpha_raw_train)
+    np.savetxt(
+        os.path.join(current_filebase, "TrainL2Error.csv"),
+        error_test,
+        fmt="%.4e",
+        delimiter=",",
+    )
+    
+    
     stop_time = timeit.default_timer()
     print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")
     
