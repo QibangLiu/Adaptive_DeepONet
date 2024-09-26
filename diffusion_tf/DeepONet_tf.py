@@ -4,8 +4,9 @@ from tensorflow import keras
 import os
 import json
 import timeit
-import matplotlib.animation as animation
-import matplotlib.pyplot as plt
+
+# import deepxde as dde
+# from deepxde import utils
 import numpy as np
 
 
@@ -16,47 +17,34 @@ class DeepONetCartesianProd(keras.Model):
         layer_sizes_branch,
         layer_sizes_trunk,
         activation="tanh",
-        num_outputs=1,
         apply_activation_outlayer=True,
     ):
         super().__init__()
-        self.num_outputs = num_outputs
         if isinstance(activation, dict):
             self.activation_branch = activation["branch"]
             self.activation_trunk = activation["trunk"]
         else:
             self.activation_branch = self.activation_trunk = activation
         self.trunk = self.build_net(
-            layer_sizes_trunk, self.activation_trunk,False, apply_activation_outlayer
+            layer_sizes_trunk, self.activation_trunk, apply_activation_outlayer
         )
         self.branch = self.build_net(
-            layer_sizes_branch, self.activation_branch,False, apply_activation_outlayer
+            layer_sizes_branch, self.activation_branch, apply_activation_outlayer
         )
-        #self.b = tf.Variable(tf.zeros(1,dtype=tf.float64))
-        self.b = [
-            tf.Variable(tf.zeros(1,dtype=tf.float32))
-            for _ in range(self.num_outputs)
-        ]
+        self.b = tf.Variable(tf.zeros(1))
         if self.trunk.output_shape != self.branch.output_shape:
             raise AssertionError(
                 "Output sizes of branch net and trunk net do not match."
             )
-        if self.trunk.output_shape[-1] % self.num_outputs != 0:
-            raise AssertionError(
-                f"Output size of the branch net is not evenly divisible by {self.num_outputs}."
-            )
-        self.shift_size=int(self.trunk.output_shape[-1]/self.num_outputs)
         self.fit_history = None
 
-    def build_net(self, layer_sizes, activation,mask_layer=False, apply_activation_outlayer=True):
+    def build_net(self, layer_sizes, activation, apply_activation_outlayer=True):
         # User-defined network
         if callable(layer_sizes[0]):
             return layer_sizes[0]
         # Fully connected network
         model = tf.keras.models.Sequential()
         model.add(tf.keras.layers.Input(shape=(layer_sizes[0],)))
-        if mask_layer:
-            model.add(tf.keras.layers.Masking(mask_value=self.padding_value))
         for size in layer_sizes[1:]:
             if size == layer_sizes[-1] and not apply_activation_outlayer:
                 model.add(tf.keras.layers.Dense(size, activation="linear"))
@@ -64,36 +52,19 @@ class DeepONetCartesianProd(keras.Model):
                 model.add(tf.keras.layers.Dense(size, activation=activation))
         return model
 
-    def call(self, inputs,tranining=False,mask=None):
-        x_func = inputs[0]  # branch input dense tensor
-        x_loc = inputs[1]  # trunk input raggged tensor
-        mask=inputs[2]
-        x_func=self.branch(x_func)
-        x_loc=self.trunk(x_loc)
-        ys=[]
-        shift = 0
-        for i in range(self.num_outputs):
-            x_func_ = x_func[:, shift : shift + self.shift_size]
-            x_loc_ = x_loc[:, shift : shift + self.shift_size]
-            y = self.merge_branch_trunk(x_func_, x_loc_, i)
-            ys.append(y)
-            shift += self.shift_size
-        ys=tf.stack(ys, axis=-1)
-        #ys=tf.sigmoid(ys) # make sure the output is in [0,1]
-        ys=tf.squeeze(ys)
-        # if mask is None:
-        #     return ys
-        # else:
-        return ys*mask
-    
+    def call(self, inputs):
+        x_func = inputs[0]  # branch input
+        x_loc = inputs[1]  # trunk input
+        x_func = self.branch(x_func)
+        x_loc = self.trunk(x_loc)
 
-    
-
-    def merge_branch_trunk(self, x_func, x_loc, index=0):
-        y = tf.einsum("bi,ni->bn", x_func, x_loc)
-        y += self.b[index]
+        y = self.merge_branch_trunk(x_func, x_loc)
         return y
-    
+
+    def merge_branch_trunk(self, x_func, x_loc):
+        y = tf.einsum("bi,ni->bn", x_func, x_loc)
+        y += self.b
+        return y
 
     def fit(self, *args, **kwargs):
         start_time = timeit.default_timer()
@@ -108,14 +79,12 @@ class DeepONetCartesianProd(keras.Model):
         print("Training time: %.2f s " % (stop_time - start_time))
         return self.fit_history
 
-    def predict(self, x, mask=None, *args, **kwargs):
+    def predict(self, x, *args, **kwargs):
         if isinstance(x, tf.data.Dataset):
             pred = super().predict(x, *args, **kwargs)
         else:
             pred = self.call(x)
             pred = pred.numpy()
-        if mask is not None:
-            pred = [pred[i][mask[i]] for i in range(pred.shape[0])]
         return pred
 
     def save_history(self, filebase):
@@ -159,18 +128,16 @@ class TripleCartesianProd:
         self, X_data, y_data=None, aux_data=None, batch_size=None, shuffle=True
     ):
         if len(X_data[0]) != y_data.shape[0] or len(X_data[1]) != y_data.shape[1]:
-            print((X_data[0].shape),X_data[1].shape,y_data.shape)
             raise ValueError(
-                "The dataset does not have the format of Cartesian product."
+                "The training dataset does not have the format of Cartesian product."
             )
         if aux_data is not None:
             if (
                 len(X_data[0]) != aux_data.shape[0]
-                #or len(X_data[1]) != aux_data.shape[1]
+                or len(X_data[1]) != aux_data.shape[1]
             ):
-                print((X_data[0].shape), aux_data.shape)
                 raise ValueError(
-                    "The dataset does not have the format of Cartesian product."
+                    "The training dataset does not have the format of Cartesian product."
                 )
         self.X_data, self.y_data = X_data, y_data
         self.aux_data = aux_data
@@ -211,8 +178,6 @@ class TripleCartesianProd:
         return dataset
 
 
-
-
 class EvaluateDeepONetPDEs:
     """Generates the derivative of the outputs with respect to the trunck inputs.
     Args:
@@ -225,23 +190,28 @@ class EvaluateDeepONetPDEs:
         self.model = model
 
         @tf.function
-        def op(inputs):
+        def op(inputs,aux=None):
             y = self.model(inputs)
             # QB: inputs[1] is the input of the trunck
             # QB: y[0] is the output corresponding
             # to the first input sample of the branch input,
             # each time we only consider one sample
-            return self.op(y[0], inputs[1])
+            return self.op(y[0][:, None], inputs[1],aux=aux)
+
         self.tf_op = op
 
-    def __call__(self, inputs,stack=True):
+    def __call__(self, inputs,aux=None):
         self.value = []
-        input_branch, input_trunck,masks = inputs
-        for inp,mask in zip(input_branch, masks):
-            x = (inp[None, :], input_trunck,mask[None, :,:])
-            self.value.append(self.tf_op(x))
-        if stack:
-            self.value = tf.stack(self.value).numpy()
+        input_branch, input_trunck = inputs
+        if aux is None:
+            for inp in input_branch:
+                x = (inp[None, :], input_trunck)
+                self.value.append(self.tf_op(x))
+        else:
+            for inp,aux_i in zip(input_branch,aux):
+                x = (inp[None, :], input_trunck)
+                self.value.append(self.tf_op(x,aux=tf.convert_to_tensor(aux_i[:,None])))
+        self.value = tf.stack(self.value).numpy()
         return self.value
 
     def get_values(self):
@@ -299,61 +269,3 @@ def closest_divisor(num_samples, batch_size):
         distance += 1
     print("Batch size is changed to ", bs)
     return bs
-
-def get_video(data_all):
-    fig=plt.figure()
-    ax1=plt.subplot(111)
-    
-    x_grid=1000*data_all["x"].squeeze()
-    t_frames=data_all["t"].squeeze()
-    
-    T_true=data_all["T_true"].squeeze()
-    alpha_true=data_all["alpha_true"].squeeze()
-    
-    T_pred=data_all["T_pred"].squeeze()
-    alpha_pred=data_all["alpha_pred"].squeeze()
-    
-    y_data=[T_true,T_pred,alpha_true,alpha_pred]
-    labels=["True Temperature","Predicted Temperature",r"True $\alpha$",r"Predicted $\alpha$"]
-    # Initialize the first plot
-    ax1.set_xlabel("x [mm]")
-    ax1.set_ylabel("Temperature [K]", color="blue")
-    ax1.tick_params(axis="y", labelcolor="blue")
-    ax1.set_ylim(260, 600)  # Adjust the range as needed
-    
-    lines=[]
-    (line,) = ax1.plot(x_grid, T_true[0, :], color="blue",linewidth=2, label="True Temperature")
-    lines.append(line)
-    (line,) = ax1.plot(x_grid, T_pred[0, :],'--',  color="crimson", linewidth=2,label="Predicted Temperature")
-    lines.append(line)
-    
-    
-    # Create the second y-axis
-    ax2 = ax1.twinx()
-    ax2.set_ylabel(r"$\alpha$", color="red")
-    ax2.tick_params(axis="y", labelcolor="red")
-    ax2.set_ylim(0, 1)
-    (line,) = ax2.plot(x_grid, alpha_true[0, :], color="red",linewidth=2, label=r"True $\alpha$")
-    lines.append(line)
-    (line,) = ax2.plot(x_grid, alpha_pred[0, :],'--', color="navy",linewidth=2, label=r"Predicted $\alpha$")
-    lines.append(line)
-    
-    labels = [line.get_label() for line in lines]
-    ax1.legend(lines, labels, loc="upper right")
-
-
-    # Function to update the plot
-    def update(i):
-        for line, y in zip(lines, y_data):
-            line.set_ydata(y[i, :])
-        plt.title("Time = %.2f s" % t_frames[i])
-        return lines
-
-
-    # Create the animation
-
-    ani = animation.FuncAnimation(
-        fig, update, frames=len(t_frames), interval=100, blit=True
-    )
-    return ani
-

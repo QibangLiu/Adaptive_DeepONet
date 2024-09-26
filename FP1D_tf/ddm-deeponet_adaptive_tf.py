@@ -25,7 +25,9 @@ prefix_filebase = "./saved_model"
 str_N0, str_dN, str_start, str_end = sys.argv[1:5]
 str_k, str_c = sys.argv[5:-1]
 str_caseID = sys.argv[-1]
-
+# str_N0, str_dN, str_start, str_end="200","200","0","2"
+# str_k, str_c = "0.0", "0.0"
+# str_caseID = "0"
 # In[3]:
 
 
@@ -312,11 +314,11 @@ for iter in range(iter_start, iter_end):
         delimiter=",",
     )
     
-    curr_y_train_raw = Talpha_raw_train[currTrainDataIDX]
-    error_train,_=L2RelativeError(x_validate=(x_train[0],x_train[1],curr_mask_train),y_validate=Talpha_raw_train)
+    curr_y_train_raw = [Talpha_raw_train[i] for i in currTrainDataIDX]
+    error_train,_=L2RelativeError(x_validate=(x_train[0],x_train[1],curr_mask_train),y_validate=curr_y_train_raw)
     np.savetxt(
         os.path.join(current_filebase, "TrainL2Error.csv"),
-        error_test,
+        error_train,
         fmt="%.4e",
         delimiter=",",
     )

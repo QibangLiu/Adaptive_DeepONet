@@ -23,9 +23,9 @@ for dev in physical_devices:
     print(dev)
 print("tf version:", tf.__version__)
 # In[]
-tf.keras.backend.set_floatx('float64')
+tf.keras.backend.set_floatx('float32')
 filebase = "./saved_model/poisson_FP1D64"
-train = False
+train = True
 # In[3]:
 
 
@@ -35,8 +35,8 @@ x_grid_file=fenics_data["x_data"].squeeze()
 T_data_file=fenics_data["Temp_data"].squeeze()
 alpha_data_file=fenics_data["alpha_data"].squeeze()
 t_data_file=fenics_data["t_data"].squeeze()
-pcs_data_raw=fenics_data["process_condition"].astype(np.float64)
-x_grid_raw=x_grid_file.astype(np.float64)
+pcs_data_raw=fenics_data["process_condition"].astype(np.float32)
+x_grid_raw=x_grid_file.astype(np.float32)
 scaler_x=np.max(x_grid_raw)
 x_grid=x_grid_raw/scaler_x
 Nx=len(x_grid)
@@ -48,12 +48,12 @@ t_data_raw=np.array([0])
 t_data=np.array([0])
 Tmaxs,Tmins=[],[]
 for i in range(len(t_data_file)):
-    t_temp=t_data_file[i].squeeze().astype(np.float64)
+    t_temp=t_data_file[i].squeeze().astype(np.float32)
     if len(t_temp)>len(t_data):
         t_data_raw=t_temp
     
-    T_data_raw.append(T_data_file[i].reshape(-1,1).astype(np.float64))
-    alpha_data.append(alpha_data_file[i].reshape(-1,1).astype(np.float64))
+    T_data_raw.append(T_data_file[i].reshape(-1,1).astype(np.float32))
+    alpha_data.append(alpha_data_file[i].reshape(-1,1).astype(np.float32))
     Tmaxs.append(np.max(T_data_raw[i]))
     Tmins.append(np.min(T_data_raw[i]))
     if len(alpha_data_file[i])!=len(t_temp):
