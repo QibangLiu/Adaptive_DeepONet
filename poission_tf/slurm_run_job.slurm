@@ -15,12 +15,12 @@
 module load anaconda3_gpu/23.3.1
 export LD_LIBRARY_PATH=/sw/external/python/anaconda3-2023.03_cuda/lib:$LD_LIBRARY_PATH
 which python
-dN='400'
+dN='300'
 start='0'
 end='25'
 k='2'
-c='1'
-case='1'
+c='0'
+case='0'
 
 srun python3 ddm-deeponet_adaptive_tf.py  $dN  $start $end $k $c $case
 #srun python3 pi-deeponet_2D_tf.py

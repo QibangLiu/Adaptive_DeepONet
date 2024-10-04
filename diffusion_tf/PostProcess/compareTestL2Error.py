@@ -13,6 +13,7 @@ import json
 def GetL2Error(filebase,epsilon=0.0,filename="TestL2Error.csv"):
     iters = natsorted(next(os.walk(filebase))[1])
     iters_path = [os.path.join(filebase, iter) for iter in iters]
+    iters_path=iters_path[:33]
     num_samples = []
     mean_L2 = []
     max_L2 = []
@@ -53,7 +54,7 @@ def get_labels(paras):
 
 # %%
 prefix_filebase = "../saved_model/"
-caseID = 0
+caseID = 2
 dN="300"
 paras = [("0", "0", dN), ("1", "0", dN), ("2", "0", dN),("4", "0", dN)]
 #paras = [("0", "1", "800"), ("1", "1", "800")]
@@ -65,11 +66,11 @@ for para in paras:
     )
     filebases.append(os.path.join(prefix_filebase, project_name))
 
-epsilon=0.00
+epsilon=0.03
 numS,num_outliers, means, maxs, stds = [], [], [], [], []
 L2_errors_all=[]
 for filebase in filebases:
-    numS1,n_outliers, mean1, max1, std1,L2error = GetL2Error(filebase,epsilon,filename="TestL2Error.csv")
+    numS1,n_outliers, mean1, max1, std1,L2error = GetL2Error(filebase,epsilon,"TestL2Error.csv")
     numS.append(numS1)
     num_outliers.append(n_outliers)
     means.append(mean1)
@@ -92,6 +93,7 @@ for num, n_outliers, label in zip(numS, num_outliers, labels):
 ax.set_xlabel("num of samples")
 ax.set_ylabel("num of outliers ")
 ax.legend()
+ax.set_yscale("log")
 ax = plt.subplot(1, 3, 3)
 for num, maxv, label in zip(numS, maxs, labels):
     ax.plot(num, (maxv) * 100, "-o", label=label)
@@ -122,8 +124,8 @@ ax.set_yscale("log")
 num=numS[3]
 L2_errors=L2_errors_all[3]
 
-fig=plt.figure(figsize=(25,30))
-nc,nr=5,6
+fig=plt.figure(figsize=(25,35))
+nc,nr=5,7
 for i,l2error in enumerate(L2_errors):
     ax=plt.subplot(nc,nr,i+1)
     ax.hist(L2_errors[i],bins=20)

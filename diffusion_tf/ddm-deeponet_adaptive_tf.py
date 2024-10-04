@@ -11,11 +11,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import scipy.io as scio
-from deepxde import utils
+# from deepxde import utils
 import tensorflow as tf
 import timeit
-
-
+import h5py
+from scipy.stats import spearmanr
+import json
+import pandas as pd
 # %run ddm-deeponet_adaptive_tf.py 200 0 2 0 0 0
 # In[]
 
@@ -26,16 +28,23 @@ str_caseID = sys.argv[-1]
 
 # In[3]:
 
-fenics_data = scio.loadmat("./TrainingData/diffusion_gauss_cov20k.mat")
-x_grid = fenics_data["x_grid"].squeeze().astype(np.float32)  # shape (Nx,)
-t_grid = fenics_data["t_grid"].squeeze().astype(np.float32)
+# fenics_data = scio.loadmat("./TrainingData/diffusion_gauss_cov20k.mat")
+# x_grid = fenics_data["x_grid"].squeeze().astype(np.float32)  # shape (Nx,)
+# t_grid = fenics_data["t_grid"].squeeze().astype(np.float32)
+# ICs_raw = fenics_data["ICs"].astype(np.float32) 
+# solutions_raw = fenics_data["solutions"].astype(np.float32)  # shape (N, Nt, Nx)
+hf=h5py.File("./TrainingData/diffusion_gauss_cov40k.h5", 'r')
+x_grid=hf['x_grid'][:].squeeze().astype(np.float32)  # shape (Nx,)\
+t_grid = hf["t_grid"][:].squeeze().astype(np.float32)
+ICs_raw = hf["ICs"][:].astype(np.float32) 
+solutions_raw = hf["solutions"][:].astype(np.float32)  # shape (N, Nt, Nx)
+hf.close()
+
 dx=x_grid[1]-x_grid[0]
 dt=t_grid[1]-t_grid[0]
 Nx, Nt = len(x_grid), len(t_grid)
 m = Nx * Nt
 x_grid, t_grid = np.meshgrid(x_grid, t_grid)
-ICs_raw = fenics_data["ICs"].astype(np.float32) 
-solutions_raw = fenics_data["solutions"].astype(np.float32)  # shape (N, Nt, Nx)
 solutions_raw=solutions_raw.reshape(-1,m)
 
 
@@ -160,6 +169,12 @@ if iter_start != 0:
     model.load_history(pre_filebase)
     model.load_weights(os.path.join(pre_filebase, "model.ckpt"))
 
+correla_file=os.path.join(filebase, "correlation.csv")
+if os.path.exists(correla_file):
+    correla_hist = pd.read_csv(correla_file).to_dict(orient="list")
+else:
+    correla_hist = {"num_sample":[], "spearman": [], "pearson": []}
+
 for iter in range(iter_start, iter_end):
     print("====iter=======:%d" % iter)
     pre_filebase = os.path.join(filebase, "iter" + str(iter - 1))
@@ -210,6 +225,21 @@ for iter in range(iter_start, iter_end):
         delimiter=",",
     )
     
+    res_test = ErrorMeasure(
+            data_test.X_data,
+            u0_testing_raw
+        )
+    
+    r_spearman, _ = spearmanr(error_test, res_test)
+    print(f"Spearman's rank correlation coefficient: {r_spearman}")
+    pearson_coe = np.corrcoef(error_test, res_test)[0, 1]
+    print("Pearson correlation coefficient:", pearson_coe)
+    
+    correla_hist["num_sample"].append(len(currTrainDataIDX))
+    correla_hist["spearman"].append(r_spearman)
+    correla_hist["pearson"].append(pearson_coe)
+
+    
     error_train,_=L2RelativeError(data_train.X_data,s_train_raw[currTrainDataIDX])
     np.savetxt(
         os.path.join(current_filebase, "TrainL2Error.csv"),
@@ -218,9 +248,14 @@ for iter in range(iter_start, iter_end):
         delimiter=",",
     )
     
+    df = pd.DataFrame(correla_hist)
+    df.to_csv(os.path.join(filebase, "correlation.csv"), index=False)
+    
     stop_time = timeit.default_timer()
     print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")
  
+
+
 fig = plt.figure()
 ax = plt.subplot(1, 1, 1)
 ax.plot(h["loss"], label="loss")

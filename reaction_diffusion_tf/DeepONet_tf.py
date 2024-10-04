@@ -190,22 +190,27 @@ class EvaluateDeepONetPDEs:
         self.model = model
 
         @tf.function
-        def op(inputs):
+        def op(inputs,aux=None):
             y = self.model(inputs)
             # QB: inputs[1] is the input of the trunck
             # QB: y[0] is the output corresponding
             # to the first input sample of the branch input,
             # each time we only consider one sample
-            return self.op(y[0][:, None], inputs[1])
+            return self.op(y[0][:, None], inputs[1],aux=aux)
 
         self.tf_op = op
 
-    def __call__(self, inputs):
+    def __call__(self, inputs,aux=None):
         self.value = []
         input_branch, input_trunck = inputs
-        for inp in input_branch:
-            x = (inp[None, :], input_trunck)
-            self.value.append(self.tf_op(x))
+        if aux is None:
+            for inp in input_branch:
+                x = (inp[None, :], input_trunck)
+                self.value.append(self.tf_op(x))
+        else:
+            for inp,aux_i in zip(input_branch,aux):
+                x = (inp[None, :], input_trunck)
+                self.value.append(self.tf_op(x,aux=tf.convert_to_tensor(aux_i[:,None])))
         self.value = tf.stack(self.value).numpy()
         return self.value
 
@@ -232,7 +237,7 @@ def hessian(y, x):
 def laplacian(y, x):
     dydx2 = hessian(y, x)
     laplacian_v = tf.reduce_sum(tf.linalg.diag_part(dydx2), axis=1)
-    return laplacian_v # (nb,)
+    return laplacian_v
 
 def laplacian_FD(u,dx,dy):
     """u shape=(batch_size,Ny,Nx)

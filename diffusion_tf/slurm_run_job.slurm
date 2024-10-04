@@ -5,8 +5,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16    # <- match to OMP_NUM_THREADS
-#SBATCH --partition=gpuA100x4      # <- or one of: gpuA100x4 gpuA40x4 gpuA100x8 gpuMI100x8-interactive
-#SBATCH --time=04:00:00      # hh:mm:ss for the jo
+#SBATCH --partition=gpuA100x4     # <- or one of: gpuA100x4 gpuA40x4 gpuA100x8 gpuMI100x8-interactive
+#SBATCH --time=08:00:00      # hh:mm:ss for the jo
 #SBATCH --mem=200g #199?
 
 # # ### GPU options ###
@@ -15,10 +15,10 @@
 module load anaconda3_gpu/23.3.1
 export LD_LIBRARY_PATH=/sw/external/python/anaconda3-2023.03_cuda/lib:$LD_LIBRARY_PATH
 which python
-dN='300'
+dN='400'
 start='0'
-end='20'
-k='4'
+end='25'
+k='0'
 c='0'
 case='0'
 
