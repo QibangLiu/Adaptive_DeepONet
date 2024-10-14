@@ -14,24 +14,24 @@ import scipy.io as scio
 import tensorflow as tf
 import h5py
 import timeit
-
+tf.keras.backend.set_floatx('float64')
 # In[]
 train=True
 filebase = "./saved_model/test"
 
 # In[3]:
 # fenics_data = scio.loadmat("./TrainingData/poisson_gauss_cov20k.mat")
-# x_grid = fenics_data["x_grid"].astype(np.float32)  # shape (Ny, Nx)
-# y_grid = fenics_data["y_grid"].astype(np.float32)
-# source_terms_raw = fenics_data["source_terms"].astype(np.float32).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
-# solutions_raw = fenics_data["solutions"].astype(np.float32).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
+# x_grid = fenics_data["x_grid"].astype(np.float64)  # shape (Ny, Nx)
+# y_grid = fenics_data["y_grid"].astype(np.float64)
+# source_terms_raw = fenics_data["source_terms"].astype(np.float64).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
+# solutions_raw = fenics_data["solutions"].astype(np.float64).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
 
-hf=h5py.File("./TrainingData/poisson_2XY_gauss_cov40K.h5", 'r')
-x_grid=hf['x_grid'][:].astype(np.float32)  # shape (Nx,)\
-y_grid = hf["y_grid"][:].astype(np.float32)
+hf=h5py.File("./TrainingData/poisson_gauss_cov20k.h5", 'r')
+x_grid=hf['x_grid'][:].astype(np.float64)  # shape (Nx,)\
+y_grid = hf["y_grid"][:].astype(np.float64)
 Nx,Ny=x_grid.shape[1],x_grid.shape[0]
-source_terms_raw = hf["source_terms"][:].astype(np.float32).reshape(-1, Nx * Ny)
-solutions_raw = hf["solutions"][:].astype(np.float32).reshape(-1, Nx * Ny)
+source_terms_raw = hf["source_terms"][:].astype(np.float64).reshape(-1, Nx * Ny)
+solutions_raw = hf["solutions"][:].astype(np.float64).reshape(-1, Nx * Ny)
 hf.close()
 dx=x_grid[0,1]-x_grid[0,0]
 dy=y_grid[1,0]-y_grid[0,0]
@@ -73,12 +73,12 @@ x_test = (u0_testing, xy_train_testing)
 y_test = s_testing
 
 # %%
-
+num_nodes = 200
 data_train = DeepONet.TripleCartesianProd(x_train, y_train, batch_size=64)
 data_test = DeepONet.TripleCartesianProd(x_test, y_test, shuffle=False)
 model = DeepONet.DeepONetCartesianProd(
-    [m, 100, 100, 100, 100, 100, 100],
-    [2, 100, 100, 100, 100, 100, 100],
+    [m, num_nodes, num_nodes, num_nodes, num_nodes, num_nodes, num_nodes],
+    [2, num_nodes, num_nodes, num_nodes, num_nodes, num_nodes, num_nodes],
     {"branch": "relu", "trunk": "tanh"},
 )
 
@@ -271,6 +271,7 @@ for i, index in enumerate(min_median_max_index):
     )
     ax.set_title(r"Source Distrubution")
     cbar = fig.colorbar(c1, ax=ax)
+    ticks = cbar.get_ticks()
     plt.tight_layout()
     ax = plt.subplot(nr, nc, nc * i + 2)
     # py.figure(figsize = (14,7))
@@ -284,7 +285,8 @@ for i, index in enumerate(min_median_max_index):
         cmap="jet",
     )
     ax.set_title(r"$-0.01*(\frac{d^2u}{dx^2}+\frac{d^2u}{dy^2})$")
-    cbar = fig.colorbar(c2, ax=ax)
+    cbar = plt.colorbar(c2)
+    #cbar.set_ticks(ticks)
     plt.tight_layout()
 
 sys.exit()
@@ -300,8 +302,8 @@ dx = x_grid[0, 1] - x_grid[0, 0]
 dy = y_grid[1, 0] - y_grid[0, 0]
 dx=(np.max(x_grid)-np.min(x_grid))/(Nx-1)/5
 dy=(np.max(y_grid)-np.min(y_grid))/(Ny-1)/5
-dx=dx.astype(np.float32)
-dy=dy.astype(np.float32)
+dx=dx.astype(np.float64)
+dy=dy.astype(np.float64)
 # %%
 def laplacian_FD(X_data, dx, dy,model):
     """u shape=(batch_size,Ny,Nx)

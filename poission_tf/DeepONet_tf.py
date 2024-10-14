@@ -9,7 +9,7 @@ import timeit
 # from deepxde import utils
 import numpy as np
 
-
+tf.keras.backend.set_floatx('float64')
 # %%
 class DeepONetCartesianProd(keras.Model):
     def __init__(
@@ -31,7 +31,7 @@ class DeepONetCartesianProd(keras.Model):
         self.branch = self.build_net(
             layer_sizes_branch, self.activation_branch, apply_activation_outlayer
         )
-        self.b = tf.Variable(tf.zeros(1))
+        self.b = tf.Variable(tf.zeros(1,dtype=tf.float64))
         if self.trunk.output_shape != self.branch.output_shape:
             raise AssertionError(
                 "Output sizes of branch net and trunk net do not match."

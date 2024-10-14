@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import scipy.io as scio
+import h5py
 # from deepxde import utils
 # import deepxde as dde
 # from deepxde.backend import tf
@@ -20,35 +21,41 @@ for dev in physical_devices:
 print("tf version:", tf.__version__)
 
 # In[3]:
-train=False
+train=True
 filebase = "./saved_model/test1D"
 # %%
-fenics_data = scio.loadmat("./TrainingData/diffusion_gauss_cov20k.mat")
-x_grid = fenics_data["x_grid"].squeeze().astype(np.float32)  # shape (Nx,)
-t_grid = fenics_data["t_grid"].squeeze().astype(np.float32)
+hf=h5py.File('./TrainingData/RD_gauss_cov40k.h5', 'r')
+x_grid=hf['x_grid'][:].squeeze().astype(np.float32)# shape (Nx,)
+t_grid = hf["t_grid"][:].squeeze().astype(np.float32)
 dx=x_grid[1]-x_grid[0]
 dt=t_grid[1]-t_grid[0]
 Nx, Nt = len(x_grid), len(t_grid)
 m = Nx * Nt
 x_grid, t_grid = np.meshgrid(x_grid, t_grid)
-ICs_raw = fenics_data["ICs"].astype(np.float32) 
-solutions_raw = fenics_data["solutions"].astype(np.float32)  # shape (N, Nt, Nx)
+ICs_raw = hf["u0s"][:].astype(np.float32) 
+Ks_raw = hf["Ks"][:].astype(np.float32)
+solutions_raw = hf["solutions"][:].astype(np.float32)  # shape (N, Nt, Nx)
 solutions_raw=solutions_raw.reshape(-1,m)
+hf.close()
 
 
 shift_solution, scaler_solution = np.mean(solutions_raw), np.std(solutions_raw) 
 shift_ICs, scaler_ICs= np.mean(ICs_raw), np.std(ICs_raw)
+shift_Ks, scaler_Ks = np.mean(Ks_raw), np.std(Ks_raw)
 solutions = (solutions_raw - shift_solution) / scaler_solution
 ICs = (ICs_raw - shift_ICs) / scaler_ICs
+Ks = (Ks_raw - shift_Ks) / scaler_Ks
+u0s=np.concatenate([ICs,Ks],axis=1)
+u0s_raw=np.concatenate([ICs_raw,Ks_raw],axis=1)
 # %%
 
 
-num_train = 6000
-num_test = 500
-u0_train = ICs[:num_train]
-u0_train_raw = ICs_raw[:num_train]  
-u0_testing = ICs[-num_test:]
-u0_testing_raw = ICs_raw[-num_test:]
+num_train = 10000
+num_test = 1000
+u0_train = u0s[:num_train]
+u0_train_raw = u0s_raw[:num_train]  
+u0_testing = u0s[-num_test:]
+u0_testing_raw = u0s_raw[-num_test:]
 s_train = solutions[:num_train]
 s_testing = solutions[-num_test:]
 s_train_raw = solutions_raw[:num_train]
@@ -68,13 +75,13 @@ y_testing = s_testing
 
 # %%
 data_test = DeepONet.TripleCartesianProd(x_testing, y_testing, shuffle=False)
-data_train = DeepONet.TripleCartesianProd(x_train, y_train, batch_size=64)
+data_train = DeepONet.TripleCartesianProd(x_train, y_train, batch_size=128)
 
 
 # %%
 numNode=200
 model = DeepONet.DeepONetCartesianProd(
-    [Nx, numNode, numNode,numNode,numNode,numNode,numNode],
+    [2*Nx, numNode/2, numNode,numNode,numNode,numNode,numNode],
     [2, numNode, numNode,numNode,numNode,numNode,numNode],
     {"branch": "relu", "trunk": "tanh"}
 )
@@ -126,9 +133,9 @@ ax.set_yscale("log")
 
 
 # %%
-x_validate = x_train
-y_validate = s_train_raw
-u0_validate = u0_train_raw
+x_validate = x_testing
+y_validate = s_testing_raw
+u0_validate = u0_testing_raw
 
 # %%
 def L2RelativeError(x_validate,y_validate,scaler_solution,shift_solution):
@@ -198,19 +205,24 @@ def lhs_eqn(y, x, aux=None):
     dYdxdX = DeepONet.jacobian(dYdx, x) #(nb,nx)
     dYdx2=dYdxdX[:,0:1] # (nb,1)
     #
-    y_inv=scaler_solution*y+shift_solution
-    lhs=(dYdt*scaler_solution+y_inv-alpha*dYdx2*scaler_solution)
+    k=tf.squeeze(aux[Nx:])[None,:] # (1,Nx)
+    y_inv=scaler_solution*y+shift_solution # (nb,1)
+    y_inv=k*(tf.reshape(y_inv,(Nt,Nx)))# (Nt,Nx)
+    lhs=(dYdt*scaler_solution-alpha*dYdx2*scaler_solution)
+    lhs = tf.reshape(lhs, (Nt, Nx))
+    lhs=lhs-y_inv
+    lhs = tf.reshape(lhs, [-1, 1])
     return lhs
 
 
 lhs_op = DeepONet.EvaluateDeepONetPDEs(model,lhs_eqn)
-lhs = lhs_op( x_validate)
+lhs = lhs_op( x_validate,u0_validate)
 
 # %%
 nr, nc = 1, 3
 fig = plt.figure(figsize=(18, 5))
 for i, index in enumerate(min_median_max_index):
-    source_validate = u0_validate[index]
+    source_validate = u0_validate[index][:Nx]
     source_ad = lhs[index].reshape(Nt, Nx)
 
     ax = plt.subplot(nr, nc, i + 1)
@@ -240,13 +252,20 @@ def ResidualError(y, x, aux=None):
     dYdxdX = DeepONet.jacobian(dYdx, x) #(nb,nx)
     dYdx2=dYdxdX[:,0:1] # (nb,1)
     #
-    y_inv=scaler_solution*y+shift_solution
-    lhs=(dYdt*scaler_solution+y_inv-alpha*dYdx2*scaler_solution)
-    lhs = tf.reshape(lhs, (Nt, Nx))
-    aux_norm = tf.norm(aux)
-    l2s = [tf.norm(lhs[i, :] - tf.squeeze(aux)) / aux_norm for i in range(lhs.shape[0])]
     
-    res = tf.reduce_mean(tf.stack(l2s))
+    u0=tf.squeeze(aux[:Nx]) # (Nx,)
+    k=tf.squeeze(aux[Nx:]) # (Nx,)
+    
+    
+    y_inv=scaler_solution*y+shift_solution
+    y_inv=k*tf.reshape(y_inv,(Nt,Nx)) #(Nt,Nx)
+    rhs=u0[None,:]+y_inv # (Nt,Nx)
+    rhs=tf.reshape(rhs,[-1,1])
+    
+    lhs=(dYdt*scaler_solution-alpha*dYdx2*scaler_solution)
+    
+    res=tf.norm(lhs-rhs)/tf.norm(rhs)
+    
     return res
 
 res_op = DeepONet.EvaluateDeepONetPDEs(model,ResidualError)
