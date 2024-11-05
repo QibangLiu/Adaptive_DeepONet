@@ -22,6 +22,7 @@ print("tf version:", tf.__version__)
 # In[3]:
 train=False
 filebase = "./saved_model/test1D"
+filebase ="./saved_model/adapt_k0c0dN400case0/iter24"
 # %%
 fenics_data = scio.loadmat("./TrainingData/diffusion_gauss_cov20k.mat")
 x_grid = fenics_data["x_grid"].squeeze().astype(np.float32)  # shape (Nx,)
@@ -44,7 +45,7 @@ ICs = (ICs_raw - shift_ICs) / scaler_ICs
 
 
 num_train = 6000
-num_test = 500
+num_test = 1000
 u0_train = ICs[:num_train]
 u0_train_raw = ICs_raw[:num_train]  
 u0_testing = ICs[-num_test:]
@@ -116,19 +117,20 @@ else:
 stop_time = timeit.default_timer()
 print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")
 
-fig = plt.figure()
-ax = plt.subplot(1, 1, 1)
-ax.plot(h["loss"], label="loss")
-ax.plot(h["val_loss"], label="val_loss")
-ax.legend()
-ax.set_yscale("log")
+if h is not None:
+    fig = plt.figure()
+    ax = plt.subplot(1, 1, 1)
+    ax.plot(h["loss"], label="loss")
+    ax.plot(h["val_loss"], label="val_loss")
+    ax.legend()
+    ax.set_yscale("log")
 
 
 
 # %%
-x_validate = x_train
-y_validate = s_train_raw
-u0_validate = u0_train_raw
+x_validate = x_testing
+y_validate = s_testing_raw
+u0_validate = u0_testing_raw
 
 # %%
 def L2RelativeError(x_validate,y_validate,scaler_solution,shift_solution):
@@ -261,7 +263,7 @@ from scipy.stats import spearmanr
 r_spearman, _ = spearmanr(error_s, res)
 print(f"Spearman's rank correlation coefficient: {r_spearman}")
 
-gap=2
+gap=1
 fig = plt.figure()
 ax=plt.subplot(1,1,1)
 ax.plot(error_s[sort_idx][::gap],(res)[sort_idx][::gap],'o')

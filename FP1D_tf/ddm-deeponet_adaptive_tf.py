@@ -11,6 +11,8 @@ import scipy.io as scio
 # from deepxde import utils
 # import deepxde as dde
 # from deepxde.backend import tf
+from scipy.stats import spearmanr
+import pandas as pd
 import tensorflow as tf
 import timeit
 from IPython.display import HTML
@@ -256,6 +258,12 @@ if iter_start != 0:
     model.load_history(pre_filebase)
     model.load_weights(os.path.join(pre_filebase, "model.ckpt"))
 
+correla_file=os.path.join(filebase, "correlation.csv")
+if os.path.exists(correla_file):
+    correla_hist = pd.read_csv(correla_file).to_dict(orient="list")
+else:
+    correla_hist = {"num_sample":[], "spearman": [], "pearson": []}
+
 for iter in range(iter_start, iter_end):
     print("====iter=======:%d" % iter)
     pre_filebase = os.path.join(filebase, "iter" + str(iter - 1))
@@ -306,6 +314,22 @@ for iter in range(iter_start, iter_end):
         fmt="%.4e",
         delimiter=",",
     )
+    
+    res_test = ErrorMeasure(
+           (x_testing[0],x_testing[1],mask_testing),op
+        )
+    
+    r_spearman, _ = spearmanr(error_test, res_test)
+    print(f"Spearman's rank correlation coefficient: {r_spearman}")
+    pearson_coe = np.corrcoef(error_test, res_test)[0, 1]
+    print("Pearson correlation coefficient:", pearson_coe)
+    
+    correla_hist["num_sample"].append(len(currTrainDataIDX))
+    correla_hist["spearman"].append(r_spearman)
+    correla_hist["pearson"].append(pearson_coe)
+    
+    df = pd.DataFrame(correla_hist)
+    df.to_csv(os.path.join(filebase, "correlation.csv"), index=False)
     
     curr_y_train_raw = [Talpha_raw_train[i] for i in currTrainDataIDX]
     error_train,_=L2RelativeError((curr_x_train[0],curr_x_train[1],curr_mask_train),

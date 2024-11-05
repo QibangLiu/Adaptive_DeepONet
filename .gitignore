@@ -3,3 +3,4 @@ __pycache__/
 slurm_output/
 TrainingData/
 saved_model*
+Adaptive_training/

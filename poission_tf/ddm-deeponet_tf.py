@@ -16,7 +16,7 @@ import h5py
 import timeit
 tf.keras.backend.set_floatx('float64')
 # In[]
-train=True
+train=False
 filebase = "./saved_model/test"
 
 # In[3]:
@@ -26,7 +26,7 @@ filebase = "./saved_model/test"
 # source_terms_raw = fenics_data["source_terms"].astype(np.float64).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
 # solutions_raw = fenics_data["solutions"].astype(np.float64).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
 
-hf=h5py.File("./TrainingData/poisson_gauss_cov20k.h5", 'r')
+hf=h5py.File("./TrainingData/poisson_gauss_fft40K.h5", 'r')
 x_grid=hf['x_grid'][:].astype(np.float64)  # shape (Nx,)\
 y_grid = hf["y_grid"][:].astype(np.float64)
 Nx,Ny=x_grid.shape[1],x_grid.shape[0]
@@ -49,7 +49,7 @@ shift_source, scaler_source = np.mean(source_terms_raw), np.std(source_terms_raw
 solutions = (solutions_raw - shift_solution) / scaler_solution
 source_terms = (source_terms_raw - shift_source) / scaler_source
 
-num_train = 5000
+num_train = 500
 num_test = 1000
 
 u0_train = source_terms[:num_train]

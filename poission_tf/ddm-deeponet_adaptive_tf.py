@@ -11,7 +11,9 @@ from sklearn.preprocessing import StandardScaler
 import scipy.io as scio
 import tensorflow as tf
 import h5py
+from scipy.stats import spearmanr
 import timeit
+import pandas as pd
 # dde.backend.set_default_backend("tensorflow")
 # dde.config.set_default_float("float64")
 # %run ddm-deeponet_adaptive_tf.py 200 0 2 0 1 0
@@ -29,7 +31,7 @@ str_caseID = sys.argv[-1]
 # source_terms_raw = fenics_data["source_terms"].astype(np.float32).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
 # solutions_raw = fenics_data["solutions"].astype(np.float32).reshape(-1, Nx * Ny)  # shape (N, Ny* Nx)
 
-hf=h5py.File("./TrainingData/poisson_2XY_gauss_cov40K.h5", 'r')
+hf=h5py.File("./TrainingData/poisson_gauss_fft40K.h5", 'r')
 x_grid=hf['x_grid'][:].astype(np.float32)  # shape (Nx,)\
 y_grid = hf["y_grid"][:].astype(np.float32)
 Nx,Ny=x_grid.shape[1],x_grid.shape[0]
@@ -232,6 +234,9 @@ for iter in range(iter_start, iter_end):
     correla_hist["num_sample"].append(len(currTrainDataIDX))
     correla_hist["spearman"].append(r_spearman)
     correla_hist["pearson"].append(pearson_coe)
+    
+    df = pd.DataFrame(correla_hist)
+    df.to_csv(os.path.join(filebase, "correlation.csv"), index=False)
     
     stop_time = timeit.default_timer()
     print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")

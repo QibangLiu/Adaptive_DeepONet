@@ -24,7 +24,7 @@ for dev in physical_devices:
 print("tf version:", tf.__version__)
 # In[]
 tf.keras.backend.set_floatx('float32')
-filebase = "/projects/bblv/qibang/repository/Adaptive_DeepONet/FP1D_tf/saved_model/adapt_k2c0dN50case0/iter20"
+filebase = "./saved_model/adapt_k0c0dN50case0/iter29"
 train = False
 # In[3]:
 
@@ -176,12 +176,13 @@ else:
 stop_time = timeit.default_timer()
 print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")
 
-# fig = plt.figure()
-# ax = plt.subplot(1, 1, 1)
-# ax.plot(h["loss"], label="loss")
-# ax.plot(h["val_loss"], label="val_loss")
-# ax.legend()
-# ax.set_yscale("log")
+if h is not None:
+    fig = plt.figure()
+    ax = plt.subplot(1, 1, 1)
+    ax.plot(h["loss"], label="loss")
+    ax.plot(h["val_loss"], label="val_loss")
+    ax.legend()
+    ax.set_yscale("log")
 
 
 # Plotting Results
@@ -398,7 +399,7 @@ def ErrorMeasure(inputs,op):
 res_op_val_ = ErrorMeasure((x_validate[0], x_validate[1],x_validate[2]),op)   
 # %%
 
-gap=2
+gap=1
 plt.plot(error_s[sort_idx][::gap],(res_op_val_)[sort_idx][::gap],'o')
 # Fit a straight line
 coefficients = np.polyfit(error_s[sort_idx], (res_op_val_)[sort_idx], 1)

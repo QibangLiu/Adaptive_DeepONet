@@ -7,7 +7,7 @@ from matplotlib.ticker import MaxNLocator
 from natsort import natsorted
 import os
 import json
-
+import pandas as pd
 
 # In[]
 def GetL2Error(filebase,epsilon=0.0,filename="TestL2Error.csv"):
@@ -66,7 +66,7 @@ for para in paras:
     )
     filebases.append(os.path.join(prefix_filebase, project_name))
 
-epsilon=0.00
+epsilon=0.05
 numS,num_outliers, means, maxs, stds = [], [], [], [], []
 L2_errors_all=[]
 for filebase in filebases:
@@ -102,7 +102,23 @@ ax.set_ylabel("Max L2 error [%] ")
 ax.legend()
 ax.set_yscale("log")
 
-
+# %%
+# correction 
+numS,spearman_s,pearson_s = [], [], []
+L2_errors_all=[]
+for filebase in filebases:
+    correla_file=os.path.join(filebase, "correlation.csv")
+    correla_hist = pd.read_csv(correla_file).to_dict(orient="list")
+    numS.append(correla_hist["num_sample"])
+    spearman_s.append(correla_hist["spearman"])
+    pearson_s.append(correla_hist["pearson"])
+fig = plt.figure()
+ax = plt.subplot(1, 1,1)
+for num, spearman, label in zip(numS, spearman_s, labels):
+    ax.plot(num, spearman, "-o", label=label)
+ax.set_xlabel("num of samples")
+ax.set_ylabel("spearman coefficient")
+ax.legend()
 # # %%
 # def load_history(filebase):
 #     his_file = os.path.join(filebase, "logs.json")

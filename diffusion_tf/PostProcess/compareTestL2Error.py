@@ -7,7 +7,7 @@ from matplotlib.ticker import MaxNLocator
 from natsort import natsorted
 import os
 import json
-
+import pandas as pd
 
 # In[]
 def GetL2Error(filebase,epsilon=0.0,filename="TestL2Error.csv"):
@@ -54,8 +54,8 @@ def get_labels(paras):
 
 # %%
 prefix_filebase = "../saved_model/"
-caseID = 2
-dN="300"
+caseID = 0
+dN="400"
 paras = [("0", "0", dN), ("1", "0", dN), ("2", "0", dN),("4", "0", dN)]
 #paras = [("0", "1", "800"), ("1", "1", "800")]
 labels = get_labels(paras)
@@ -66,7 +66,7 @@ for para in paras:
     )
     filebases.append(os.path.join(prefix_filebase, project_name))
 
-epsilon=0.03
+epsilon=0.05
 numS,num_outliers, means, maxs, stds = [], [], [], [], []
 L2_errors_all=[]
 for filebase in filebases:
@@ -82,27 +82,40 @@ fig = plt.figure(figsize=(18, 4))
 ax = plt.subplot(1, 3, 1)
 for num, meanv, label in zip(numS, means, labels):
     ax.plot(num, (meanv) * 100, "-o", label=label)
-ax.set_xlabel("num of samples")
-ax.set_ylabel("Sum of outliers L2 error [%]")
+ax.set_xlabel("Num of samples")
+ax.set_ylabel("Sum of outliers' $L_2$ relative error [%]")
 ax.set_title(f"$L_2 > {epsilon*100}\%$" )
 ax.legend()
 ax.set_yscale("log")
 ax = plt.subplot(1, 3, 2)
 for num, n_outliers, label in zip(numS, num_outliers, labels):
     ax.plot(num, n_outliers, "-o", label=label)
-ax.set_xlabel("num of samples")
+ax.set_xlabel("Num of samples")
 ax.set_ylabel("num of outliers ")
 ax.legend()
 ax.set_yscale("log")
 ax = plt.subplot(1, 3, 3)
 for num, maxv, label in zip(numS, maxs, labels):
     ax.plot(num, (maxv) * 100, "-o", label=label)
-ax.set_xlabel("num of samples")
-ax.set_ylabel("Max L2 error [%] ")
+ax.set_xlabel("Num of samples")
+ax.set_ylabel("Max $L_2$ relative error [%] ")
 ax.legend()
 ax.set_yscale("log")
-
-
+# %%
+numS,spearman_s,pearson_s = [], [], []
+for filebase in filebases:
+    correla_file=os.path.join(filebase, "correlation.csv")
+    correla_hist = pd.read_csv(correla_file).to_dict(orient="list")
+    numS.append(correla_hist["num_sample"])
+    spearman_s.append(correla_hist["spearman"])
+    pearson_s.append(correla_hist["pearson"])
+fig = plt.figure()
+ax = plt.subplot(1, 1,1)
+for num, spearman, label in zip(numS, spearman_s, labels):
+    ax.plot(num, spearman, "-o", label=label)
+ax.set_xlabel("Num of samples")
+ax.set_ylabel("spearman coefficient")
+ax.legend()
 # # %%
 # def load_history(filebase):
 #     his_file = os.path.join(filebase, "logs.json")

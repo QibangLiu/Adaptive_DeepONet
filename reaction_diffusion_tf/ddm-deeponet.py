@@ -21,10 +21,11 @@ for dev in physical_devices:
 print("tf version:", tf.__version__)
 
 # In[3]:
-train=True
+train=False
 filebase = "./saved_model/test1D"
+filebase="./saved_model/adapt_k0c0dN800case0/iter24"
 # %%
-hf=h5py.File('./TrainingData/RD_gauss_cov40k.h5', 'r')
+hf=h5py.File('./TrainingData/RD_gauss_cov80k.h5', 'r')
 x_grid=hf['x_grid'][:].squeeze().astype(np.float32)# shape (Nx,)
 t_grid = hf["t_grid"][:].squeeze().astype(np.float32)
 dx=x_grid[1]-x_grid[0]
@@ -123,12 +124,13 @@ else:
 stop_time = timeit.default_timer()
 print("training Run time so far: ", round(stop_time - start_time, 2), "(s)")
 
-fig = plt.figure()
-ax = plt.subplot(1, 1, 1)
-ax.plot(h["loss"], label="loss")
-ax.plot(h["val_loss"], label="val_loss")
-ax.legend()
-ax.set_yscale("log")
+if h is not None:
+    fig = plt.figure()
+    ax = plt.subplot(1, 1, 1)
+    ax.plot(h["loss"], label="loss")
+    ax.plot(h["val_loss"], label="val_loss")
+    ax.legend()
+    ax.set_yscale("log")
 
 
 

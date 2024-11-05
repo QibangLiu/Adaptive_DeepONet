@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J Jupyter
 #SBATCH --output=./slurm_output/jupyterServer%j.log
-#SBATCH --account=bblv-delta-gpu
+#SBATCH --account=bcxr-delta-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16    # <- match to OMP_NUM_THREADS

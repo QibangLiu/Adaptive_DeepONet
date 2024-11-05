@@ -44,18 +44,18 @@ def get_labels(paras):
     labels = []
     for para in paras:
         if para[0] == "0":
-            label = "Random"
+            label = "k=0 (random)"
         else:
-            label = "k=" + para[0] + ", c=" + para[1]
+            label = "k=" + para[0] #+ ", c=" + para[1]
         labels.append(label)
     return labels
 
 
 # %%
 prefix_filebase = "../saved_model/"
-caseID = 0
-dN="300"
-paras = [("0", "0", dN), ("1", "1", dN), ("2", "1", dN),("2", "0", dN)]#,
+caseID = 1
+dN="400"
+paras = [("0", "0", dN),("1", "0", dN), ("2", "0", dN),("4", "0", dN)]#,
 #paras = [("0", "1", "800"), ("1", "1", "800")]
 labels = get_labels(paras)
 filebases = []
@@ -65,7 +65,7 @@ for para in paras:
     )
     filebases.append(os.path.join(prefix_filebase, project_name))
 
-epsilon=0.03 
+epsilon=0.05
 numS,num_outliers, means, maxs, stds = [], [], [], [], []
 L2_errors_all=[]
 for filebase in filebases:
@@ -81,22 +81,22 @@ fig = plt.figure(figsize=(18, 4))
 ax = plt.subplot(1, 3, 1)
 for num, meanv, label in zip(numS, means, labels):
     ax.plot(num, (meanv) * 100, "-o", label=label)
-ax.set_xlabel("num of samples")
-ax.set_ylabel("Sum of outliers L2 error [%]")
+ax.set_xlabel("Num of samples")
+ax.set_ylabel("Sum of outliers' $L_2$ relative error [%]")
 ax.set_title(f"$L_2 > {epsilon*100}\%$" )
 ax.legend()
 ax.set_yscale("log")
 ax = plt.subplot(1, 3, 2)
 for num, n_outliers, label in zip(numS, num_outliers, labels):
     ax.plot(num, n_outliers, "-o", label=label)
-ax.set_xlabel("num of samples")
-ax.set_ylabel("num of outliers ")
+ax.set_xlabel("Num of samples")
+ax.set_ylabel("Num of outliers ")
 ax.legend()
 ax = plt.subplot(1, 3, 3)
 for num, maxv, label in zip(numS, maxs, labels):
     ax.plot(num, (maxv) * 100, "-o", label=label)
-ax.set_xlabel("num of samples")
-ax.set_ylabel("Max L2 error [%] ")
+ax.set_xlabel("Num of samples")
+ax.set_ylabel(r"Max $L_2$ relative error [%] ")
 ax.legend()
 ax.set_yscale("log")
 
